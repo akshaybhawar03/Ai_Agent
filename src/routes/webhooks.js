@@ -40,6 +40,7 @@ router.post('/voice', async (req, res) => {
     // Generate initial greeting
     const result = await processConversation(sessionId, null);
 
+    response.play(getTtsUrl(result.response, sessionId));
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
     
     const gather = response.gather({
@@ -52,8 +53,7 @@ router.post('/voice', async (req, res) => {
     });
 
     // If no response, retry once
-    // response.play(getTtsUrl('Hello? Kya aap sun rahe hain?', sessionId));
-    response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Hello? Kya aap sun rahe hain?');
+    response.play(getTtsUrl('Hello? Kya aap sun rahe hain?', sessionId));
     const gather2 = response.gather({
       input: 'speech',
       language: 'hi-IN',
@@ -63,10 +63,12 @@ router.post('/voice', async (req, res) => {
       timeout: 5
     });
 
+    response.play(getTtsUrl('Theek hai, main baad mein call karunga. Namaste!', sessionId));
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
     response.hangup();
   } catch (error) {
     console.error('Voice webhook error:', error);
+    response.play(getTtsUrl('Sorry, technical problem. Namaste.', sessionId));
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Sorry, technical problem. Namaste.');
     response.hangup();
   }
@@ -90,6 +92,7 @@ router.post('/gather', async (req, res) => {
 
     const result = await processConversation(sessionId, speechResult);
 
+    response.play(getTtsUrl(result.response, sessionId));
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
@@ -103,11 +106,13 @@ router.post('/gather', async (req, res) => {
         method: 'POST',
         timeout: 5
       });
+      response.play(getTtsUrl('Theek hai, main baad mein call karunga. Namaste!', sessionId));
       response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
       response.hangup();
     }
   } catch (error) {
     console.error('Gather webhook error:', error);
+    response.play(getTtsUrl('Namaste!', sessionId));
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Namaste!');
     response.hangup();
   }
