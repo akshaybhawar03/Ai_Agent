@@ -153,7 +153,8 @@ async function processConversation(sessionId, userSpeech) {
     (aiMessage.toLowerCase().includes('dhanyawad') || session.messages.length > 10);
 
   // Use environment variable as master override for production voice consistency
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || session.agent.voice_id || '21m00T8qzDZDBy75fScB';
+  // Fallback to Charlie (IKne3meq5a9ay08G9zUe) if no other ID is found
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || session.agent.voice_id || 'IKne3meq5a9ay08G9zUe';
     
   return {
     response: aiMessage,

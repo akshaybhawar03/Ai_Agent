@@ -68,6 +68,14 @@ server.listen(PORT, () => {
   console.log(`CollectAI Backend running on port ${PORT}`);
   console.log(`[AI Provider] ${process.env.GROQ_API_KEY ? 'Groq (Free - Llama 3.3)' : 'OpenAI'}`);
   console.log(`[Webhook URL] ${process.env.WEBHOOK_BASE_URL}`);
+  
+  // Log available ElevenLabs voices
+  const { getVoices } = require('./services/elevenlabs');
+  getVoices().then(voices => {
+    console.log('[ElevenLabs] Available Voices:');
+    voices.forEach(v => console.log(` - ${v.name}: ${v.voice_id}`));
+  }).catch(err => console.error('[ElevenLabs] Error fetching voices:', err.message));
+
   initScheduler();
 });
 
