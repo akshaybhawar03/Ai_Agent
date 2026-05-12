@@ -41,7 +41,7 @@ router.post('/voice', async (req, res) => {
     const session = getSession(sessionId);
     if (!session) {
       console.error(`[Twilio Voice] Session not found: ${sessionId}`);
-      response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Sorry, kuch technical problem hai. Namaste.');
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Sorry, kuch technical problem hai. Namaste.');
       response.hangup();
       return res.type('text/xml').send(response.toString());
     }
@@ -55,7 +55,7 @@ router.post('/voice', async (req, res) => {
     if (ttsUrl) {
       response.play(ttsUrl);
     }
-    response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     
     const gather = response.gather({
       input: 'speech',
@@ -78,12 +78,12 @@ router.post('/voice', async (req, res) => {
     });
 
     response.play(getTtsUrl('Theek hai, main baad mein call karunga. Namaste!', sessionId));
-    response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
     response.hangup();
   } catch (error) {
     console.error('Voice webhook error:', error);
     response.play(getTtsUrl('Sorry, technical problem. Namaste.', sessionId));
-    response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Sorry, technical problem. Namaste.');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Sorry, technical problem. Namaste.');
     response.hangup();
   }
 
@@ -112,7 +112,7 @@ router.post('/gather', async (req, res) => {
     if (ttsUrl) {
       response.play(ttsUrl);
     }
-    response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
       response.hangup();
@@ -126,13 +126,13 @@ router.post('/gather', async (req, res) => {
         timeout: 5
       });
       response.play(getTtsUrl('Theek hai, main baad mein call karunga. Namaste!', sessionId));
-      response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
       response.hangup();
     }
   } catch (error) {
     console.error('Gather webhook error:', error);
     response.play(getTtsUrl('Namaste!', sessionId));
-    response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Namaste!');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Namaste!');
     response.hangup();
   }
 
