@@ -29,18 +29,26 @@ router.post('/voice', async (req, res) => {
   const VoiceResponse = twilio.twiml.VoiceResponse;
   const response = new VoiceResponse();
 
+  console.log(`[Twilio Voice] Incoming call for session: ${sessionId}`);
+
   try {
     const session = getSession(sessionId);
     if (!session) {
+      console.error(`[Twilio Voice] Session not found: ${sessionId}`);
       response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, 'Sorry, kuch technical problem hai. Namaste.');
       response.hangup();
       return res.type('text/xml').send(response.toString());
     }
 
     // Generate initial greeting
+    console.log(`[Twilio Voice] Generating greeting...`);
     const result = await processConversation(sessionId, null);
+    console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
-    response.play(getTtsUrl(result.response, sessionId));
+    const ttsUrl = getTtsUrl(result.response, sessionId);
+    console.log(`[Twilio Voice] TTS URL: ${ttsUrl}`);
+    
+    response.play(ttsUrl);
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
     
     const gather = response.gather({
@@ -90,9 +98,12 @@ router.post('/gather', async (req, res) => {
       return res.type('text/xml').send(response.toString());
     }
 
+    console.log(`[Twilio Gather] User Speech: ${speechResult}`);
     const result = await processConversation(sessionId, speechResult);
+    console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
-    response.play(getTtsUrl(result.response, sessionId));
+    const ttsUrl = getTtsUrl(result.response, sessionId);
+    response.play(ttsUrl);
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
