@@ -1,48 +1,37 @@
-/**
- * Deepgram STT service
- * Creates a live transcription WebSocket connection
- */
-
-const WebSocket = require('ws');
-
-function createLiveTranscription(apiKey, options = {}) {
-  const key = apiKey || process.env.DEEPGRAM_API_KEY;
-
-  const dgUrl = `wss://api.deepgram.com/v1/listen?` +
-    `model=${options.model || 'nova-2'}` +
-    `&language=${options.language || 'hi'}` +
-    `&punctuate=true` +
-    `&interim_results=true` +
-    `&endpointing=300` +
-    `&encoding=${options.encoding || 'mulaw'}` +
-    `&sample_rate=${options.sampleRate || 8000}` +
-    `&channels=1`;
-
-  const ws = new WebSocket(dgUrl, {
-    headers: { 'Authorization': `Token ${key}` }
-  });
-
-  return ws;
-}
+const fetch = require('node-fetch');
 
 /**
- * Transcribe a pre-recorded audio file
+ * Convert text to speech using Deepgram Aura TTS
  */
-async function transcribeFile(audioUrl, apiKey) {
+async function textToSpeech(text, apiKey) {
   const key = apiKey || process.env.DEEPGRAM_API_KEY;
+  
+  if (!key) {
+    throw new Error('Deepgram API Key is missing');
+  }
 
-  const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&language=hi&punctuate=true', {
+  // Using Aura - Stella (Female) or Asteria (Female) or Orion (Male)
+  // Options: aura-stella-en, aura-asteria-en, aura-luna-en, aura-stella-en
+  // For Hindi, we use the standard model as it supports multiple languages
+  const model = 'aura-stella-en'; 
+  const url = `https://api.deepgram.com/v1/speak?model=${model}`;
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Authorization': `Token ${key}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ url: audioUrl })
+    body: JSON.stringify({ text })
   });
 
-  if (!response.ok) throw new Error('Deepgram transcription failed');
-  const data = await response.json();
-  return data.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Deepgram TTS failed: ${response.status} - ${err}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
-module.exports = { createLiveTranscription, transcribeFile };
+module.exports = { textToSpeech };

@@ -4,7 +4,8 @@
 const express = require('express');
 const twilio = require('twilio');
 const { processConversation, postCallUpdate, getSession } = require('../services/callEngine');
-const { textToSpeech } = require('../services/elevenlabs');
+const { textToSpeech: elevenLabsTTS } = require('../services/elevenlabs');
+const { textToSpeech: deepgramTTS } = require('../services/deepgram');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -178,16 +179,24 @@ router.get('/tts', async (req, res) => {
       return res.sendFile(cachePath);
     }
 
-    // Otherwise generate new audio using ElevenLabs
-    console.log(`[TTS] Generating new audio for: "${text.substring(0, 30)}..."`);
-    const audioBuffer = await textToSpeech(text);
+    // Otherwise generate new audio using Deepgram (Fallback to ElevenLabs)
+    console.log(`[TTS] Generating new audio with Deepgram for: "${text.substring(0, 30)}..."`);
+    
+    let audioBuffer;
+    try {
+      audioBuffer = await deepgramTTS(text);
+    } catch (dgError) {
+      console.warn(`[TTS] Deepgram failed, trying ElevenLabs: ${dgError.message}`);
+      audioBuffer = await elevenLabsTTS(text);
+    }
+
     fs.writeFileSync(cachePath, audioBuffer);
     
     res.set('Content-Type', 'audio/mpeg');
     res.send(audioBuffer);
   } catch (error) {
-    console.error('TTS Route Error:', error);
-    res.status(500).send('TTS Failed');
+    console.error('TTS Route Error:', error.message);
+    res.status(404).send('TTS Failed');
   }
 });
 
