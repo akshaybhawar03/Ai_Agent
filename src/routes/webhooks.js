@@ -117,7 +117,7 @@ router.post('/gather', async (req, res) => {
     if (result.shouldEnd) {
       response.hangup();
     } else {
-      const gather = response.gather({
+      response.gather({
         input: 'speech',
         language: 'hi-IN',
         speechTimeout: 'auto',
@@ -125,9 +125,6 @@ router.post('/gather', async (req, res) => {
         method: 'POST',
         timeout: 5
       });
-      response.play(getTtsUrl('Theek hai, main baad mein call karunga. Namaste!', sessionId));
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
-      response.hangup();
     }
   } catch (error) {
     console.error('Gather webhook error:', error);
@@ -179,15 +176,24 @@ router.get('/tts', async (req, res) => {
       return res.sendFile(cachePath);
     }
 
-    // Otherwise generate new audio using Deepgram (Fallback to ElevenLabs)
+    // Otherwise generate new audio using Deepgram (with timeout)
     console.log(`[TTS] Generating new audio with Deepgram for: "${text.substring(0, 30)}..."`);
     
     let audioBuffer;
     try {
-      audioBuffer = await deepgramTTS(text);
+      // Set a 4 second timeout for TTS to prevent Twilio timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('TTS Timeout')), 4000)
+      );
+      
+      audioBuffer = await Promise.race([
+        deepgramTTS(text),
+        timeoutPromise
+      ]);
     } catch (dgError) {
-      console.warn(`[TTS] Deepgram failed, trying ElevenLabs: ${dgError.message}`);
-      audioBuffer = await elevenLabsTTS(text);
+      console.warn(`[TTS] Deepgram/Timeout failed: ${dgError.message}`);
+      // Return 404 to trigger Twilio's native voice fallback immediately
+      return res.status(404).send('TTS Failed');
     }
 
     fs.writeFileSync(cachePath, audioBuffer);
