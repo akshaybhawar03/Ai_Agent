@@ -19,8 +19,13 @@ const router = express.Router();
 
 // Helper to get TTS URL
 const getTtsUrl = (text, sessionId) => {
-  const baseUrl = process.env.WEBHOOK_BASE_URL || '';
-  return `${baseUrl}/webhook/twilio/tts?text=${encodeURIComponent(text)}&sessionId=${sessionId}`;
+  try {
+    const baseUrl = process.env.WEBHOOK_BASE_URL || '';
+    if (!baseUrl) return null; // Return null if no base URL
+    return `${baseUrl}/webhook/twilio/tts?text=${encodeURIComponent(text)}&sessionId=${sessionId}`;
+  } catch (e) {
+    return null;
+  }
 };
 
 // POST /webhook/twilio/voice - Initial voice webhook
@@ -46,9 +51,9 @@ router.post('/voice', async (req, res) => {
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
     const ttsUrl = getTtsUrl(result.response, sessionId);
-    console.log(`[Twilio Voice] TTS URL: ${ttsUrl}`);
-    
-    response.play(ttsUrl);
+    if (ttsUrl) {
+      response.play(ttsUrl);
+    }
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
     
     const gather = response.gather({
@@ -103,7 +108,9 @@ router.post('/gather', async (req, res) => {
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
     const ttsUrl = getTtsUrl(result.response, sessionId);
-    response.play(ttsUrl);
+    if (ttsUrl) {
+      response.play(ttsUrl);
+    }
     response.say({ voice: 'Polly.Aditi', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
