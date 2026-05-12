@@ -152,7 +152,14 @@ async function processConversation(sessionId, userSpeech) {
   const shouldEnd = aiMessage.toLowerCase().includes('namaste') &&
     (aiMessage.toLowerCase().includes('dhanyawad') || session.messages.length > 10);
 
-  return { response: aiMessage, shouldEnd };
+  // Use environment variable as master override for production voice consistency
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || session.agent.voice_id || '21m00T8qzDZDBy75fScB';
+    
+  return {
+    response: aiMessage,
+    shouldEnd,
+    voice_id: voiceId
+  };
 }
 
 /**
