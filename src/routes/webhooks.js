@@ -4,7 +4,6 @@
 const express = require('express');
 const twilio = require('twilio');
 const { processConversation, postCallUpdate, getSession } = require('../services/callEngine');
-const { textToSpeech: openaiTTS } = require('../services/openaiTTS');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -50,24 +49,12 @@ router.post('/voice', async (req, res) => {
     const result = await processConversation(sessionId, null);
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
-    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice);
-    if (ttsUrl) {
-      response.play(ttsUrl);
-    }
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     
     const gather = response.gather({
       input: 'speech',
       language: 'hi-IN',
       speechTimeout: 'auto',
-      action: `/webhook/twilio/gather?sessionId=${sessionId}`,
-      method: 'POST',
-      timeout: 5
-    });
-
-    // If no response, retry once
-    response.play(getTtsUrl('Hello? Kya aap sun rahe hain?', sessionId));
-    const gather2 = response.gather({
       input: 'speech',
       language: 'hi-IN',
       speechTimeout: 'auto',
@@ -107,10 +94,6 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
-    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice);
-    if (ttsUrl) {
-      response.play(ttsUrl);
-    }
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
@@ -127,7 +110,6 @@ router.post('/gather', async (req, res) => {
     }
   } catch (error) {
     console.error('Gather webhook error:', error);
-    response.play(getTtsUrl('Namaste!', sessionId));
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Namaste!');
     response.hangup();
   }
