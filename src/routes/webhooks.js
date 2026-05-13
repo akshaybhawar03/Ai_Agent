@@ -4,10 +4,29 @@
 const express = require('express');
 const twilio = require('twilio');
 const { processConversation, postCallUpdate, getSession } = require('../services/callEngine');
+const { generateTTS } = require('../services/tts');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+
+// Create a cache directory for TTS audio
+const CACHE_DIR = path.join(__dirname, '../../cache/audio');
+if (!fs.existsSync(CACHE_DIR)) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+}
 
 const router = express.Router();
+
+// Helper to get TTS URL
+const getTtsUrl = (text, sessionId) => {
+  try {
+    const baseUrl = process.env.WEBHOOK_BASE_URL || '';
+    if (!baseUrl) return null;
+    return `${baseUrl}/webhook/twilio/tts?text=${encodeURIComponent(text)}&sessionId=${sessionId}`;
+  } catch (e) {
+    return null;
+  }
+};
 
 // POST /webhook/twilio/voice - Initial voice webhook
 router.post('/voice', async (req, res) => {
@@ -21,20 +40,24 @@ router.post('/voice', async (req, res) => {
     const session = getSession(sessionId);
     if (!session) {
       console.error(`[Twilio Voice] Session not found: ${sessionId}`);
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Maaf kijiye, technical error hai. Namaste.');
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Technical problem hai. Namaste.');
       response.hangup();
       return res.type('text/xml').send(response.toString());
     }
 
-    // Generate initial greeting
     console.log(`[Twilio Voice] Generating greeting...`);
     const result = await processConversation(sessionId, null);
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
-    // AI Speaks
+    // Play high-quality Azure TTS
+    const ttsUrl = getTtsUrl(result.response, sessionId);
+    if (ttsUrl) {
+      response.play(ttsUrl);
+    }
+    
+    // Fallback native voice
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     
-    // Listen for response
     const gather = response.gather({
       input: 'speech',
       language: 'hi-IN',
@@ -44,13 +67,12 @@ router.post('/voice', async (req, res) => {
       timeout: 5
     });
 
-    // Fallback if they don't say anything
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Kya aap sun rahe hain?');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Aap sun rahe hain?');
     response.redirect(`/webhook/twilio/voice?sessionId=${sessionId}`);
 
   } catch (error) {
     console.error('Voice webhook error:', error);
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Technical problem hai. Namaste.');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Sorry, error aa gaya.');
     response.hangup();
   }
 
@@ -72,8 +94,7 @@ router.post('/gather', async (req, res) => {
     }
 
     if (!speechResult) {
-      // If no speech detected, ask again
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Maaf kijiye, main sun nahi paaya. Kya aap phir se kahenge?');
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Main sun nahi paaya. Phir se boliye?');
       response.redirect(`/webhook/twilio/voice?sessionId=${sessionId}`);
       return res.type('text/xml').send(response.toString());
     }
@@ -82,13 +103,15 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
-    // AI Speaks response
+    const ttsUrl = getTtsUrl(result.response, sessionId);
+    if (ttsUrl) {
+      response.play(ttsUrl);
+    }
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
       response.hangup();
     } else {
-      // Continue listening
       response.gather({
         input: 'speech',
         language: 'hi-IN',
@@ -97,33 +120,53 @@ router.post('/gather', async (req, res) => {
         method: 'POST',
         timeout: 5
       });
-      // Second fallback
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Aap sun rahe hain?');
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Aap sun rahe hain?');
     }
   } catch (error) {
     console.error('Gather webhook error:', error);
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Technical problem. Namaste.');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Technical problem.');
     response.hangup();
   }
 
   res.type('text/xml').send(response.toString());
 });
 
+// GET /webhook/twilio/tts - Azure TTS generation
+router.get('/tts', async (req, res) => {
+  const { text, sessionId } = req.query;
+  if (!text) return res.status(400).send('Text required');
+
+  const cacheKey = crypto.createHash('md5').update(text).digest('hex');
+  const cachePath = path.join(CACHE_DIR, `${cacheKey}.mp3`);
+
+  try {
+    if (fs.existsSync(cachePath)) {
+      return res.sendFile(cachePath);
+    }
+
+    console.log(`[TTS] Generating Azure audio for: "${text.substring(0, 30)}..."`);
+    const audioBuffer = await generateTTS(text);
+    fs.writeFileSync(cachePath, audioBuffer);
+    
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': audioBuffer.length
+    });
+    res.send(audioBuffer);
+  } catch (error) {
+    console.error('[TTS] Azure Error:', error.message);
+    res.status(404).send('TTS Failed');
+  }
+});
+
 // POST /webhook/twilio/status - Status callback
 router.post('/status', async (req, res) => {
   const sessionId = req.query.sessionId;
   const callStatus = req.body.CallStatus;
-  
   console.log(`[Twilio Status] Session: ${sessionId}, Status: ${callStatus}`);
-  
-  if (callStatus === 'completed' || callStatus === 'failed' || callStatus === 'busy' || callStatus === 'no-answer') {
-    try {
-      await postCallUpdate(sessionId, callStatus);
-    } catch (error) {
-      console.error('Status callback error:', error);
-    }
+  if (['completed', 'failed', 'busy', 'no-answer'].includes(callStatus)) {
+    try { await postCallUpdate(sessionId, callStatus); } catch (e) {}
   }
-  
   res.sendStatus(200);
 });
 
