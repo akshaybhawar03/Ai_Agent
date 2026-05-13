@@ -6,26 +6,8 @@ const twilio = require('twilio');
 const { processConversation, postCallUpdate, getSession } = require('../services/callEngine');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
-
-// Create a cache directory for TTS audio
-const CACHE_DIR = path.join(__dirname, '../../cache/audio');
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
-}
 
 const router = express.Router();
-
-// Helper to get TTS URL
-const getTtsUrl = (text, sessionId, voice = 'onyx') => {
-  try {
-    const baseUrl = process.env.WEBHOOK_BASE_URL || '';
-    if (!baseUrl) return null; // Return null if no base URL
-    return `${baseUrl}/webhook/twilio/tts?text=${encodeURIComponent(text)}&sessionId=${sessionId}&voice=${voice}`;
-  } catch (e) {
-    return null;
-  }
-};
 
 // POST /webhook/twilio/voice - Initial voice webhook
 router.post('/voice', async (req, res) => {
@@ -39,7 +21,7 @@ router.post('/voice', async (req, res) => {
     const session = getSession(sessionId);
     if (!session) {
       console.error(`[Twilio Voice] Session not found: ${sessionId}`);
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Sorry, kuch technical problem hai. Namaste.');
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Maaf kijiye, technical error hai. Namaste.');
       response.hangup();
       return res.type('text/xml').send(response.toString());
     }
@@ -49,12 +31,11 @@ router.post('/voice', async (req, res) => {
     const result = await processConversation(sessionId, null);
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
+    // AI Speaks
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     
+    // Listen for response
     const gather = response.gather({
-      input: 'speech',
-      language: 'hi-IN',
-      speechTimeout: 'auto',
       input: 'speech',
       language: 'hi-IN',
       speechTimeout: 'auto',
@@ -63,13 +44,13 @@ router.post('/voice', async (req, res) => {
       timeout: 5
     });
 
-    response.play(getTtsUrl('Theek hai, main baad mein call karunga. Namaste!', sessionId));
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Theek hai, main baad mein call karunga. Namaste!');
-    response.hangup();
+    // Fallback if they don't say anything
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Kya aap sun rahe hain?');
+    response.redirect(`/webhook/twilio/voice?sessionId=${sessionId}`);
+
   } catch (error) {
     console.error('Voice webhook error:', error);
-    response.play(getTtsUrl('Sorry, technical problem. Namaste.', sessionId));
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Sorry, technical problem. Namaste.');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Technical problem hai. Namaste.');
     response.hangup();
   }
 
@@ -85,8 +66,15 @@ router.post('/gather', async (req, res) => {
 
   try {
     const session = getSession(sessionId);
-    if (!session || !speechResult) {
+    if (!session) {
       response.hangup();
+      return res.type('text/xml').send(response.toString());
+    }
+
+    if (!speechResult) {
+      // If no speech detected, ask again
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Maaf kijiye, main sun nahi paaya. Kya aap phir se kahenge?');
+      response.redirect(`/webhook/twilio/voice?sessionId=${sessionId}`);
       return res.type('text/xml').send(response.toString());
     }
 
@@ -94,11 +82,13 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
+    // AI Speaks response
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
       response.hangup();
     } else {
+      // Continue listening
       response.gather({
         input: 'speech',
         language: 'hi-IN',
@@ -107,83 +97,34 @@ router.post('/gather', async (req, res) => {
         method: 'POST',
         timeout: 5
       });
+      // Second fallback
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Aap sun rahe hain?');
     }
   } catch (error) {
     console.error('Gather webhook error:', error);
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Namaste!');
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Technical problem. Namaste.');
     response.hangup();
   }
 
   res.type('text/xml').send(response.toString());
 });
 
-// POST /webhook/twilio/status - Call status updates
+// POST /webhook/twilio/status - Status callback
 router.post('/status', async (req, res) => {
   const sessionId = req.query.sessionId;
-  const { CallStatus, CallDuration, RecordingUrl } = req.body;
-
-  console.log(`[Twilio Status] Session: ${sessionId}, Status: ${CallStatus}`);
-
-  if (['completed', 'failed', 'busy', 'no-answer', 'canceled'].includes(CallStatus)) {
-    await postCallUpdate(sessionId, {
-      duration: parseInt(CallDuration) || 0,
-      recordingUrl: RecordingUrl || null
-    });
-  }
-
-  res.sendStatus(200);
-});
-
-// POST /webhook/twilio/recording - Recording callback
-router.post('/recording', async (req, res) => {
-  console.log('[Twilio Recording]', req.body.RecordingUrl);
-  res.sendStatus(200);
-});
-
-// GET /webhook/twilio/tts - Dynamic TTS generation for <Play>
-router.get('/tts', async (req, res) => {
-  const { text, sessionId, voice } = req.query;
-
-  if (!text) return res.status(400).send('Text required');
-
-  try {
-    // Generate a unique cache key based on text
-    const cacheKey = crypto.createHash('md5').update(text).digest('hex');
-    const cachePath = path.join(CACHE_DIR, `${cacheKey}.mp3`);
-
-    // Check if audio is already cached
-    if (fs.existsSync(cachePath)) {
-      return res.sendFile(cachePath);
-    }
-
-    // Otherwise generate new audio using OpenAI TTS (with timeout)
-    console.log(`[TTS] Generating new audio with OpenAI for: "${text.substring(0, 30)}..."`);
-    
-    let audioBuffer;
+  const callStatus = req.body.CallStatus;
+  
+  console.log(`[Twilio Status] Session: ${sessionId}, Status: ${callStatus}`);
+  
+  if (callStatus === 'completed' || callStatus === 'failed' || callStatus === 'busy' || callStatus === 'no-answer') {
     try {
-      // Set a 4 second timeout for TTS to prevent Twilio timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('TTS Timeout')), 4000)
-      );
-      
-      audioBuffer = await Promise.race([
-        openaiTTS(text, voice),
-        timeoutPromise
-      ]);
-    } catch (oaError) {
-      console.warn(`[TTS] OpenAI/Timeout failed: ${oaError.message}`);
-      // Return 404 to trigger Twilio's native voice fallback immediately
-      return res.status(404).send('TTS Failed');
+      await postCallUpdate(sessionId, callStatus);
+    } catch (error) {
+      console.error('Status callback error:', error);
     }
-
-    fs.writeFileSync(cachePath, audioBuffer);
-    
-    res.set('Content-Type', 'audio/mpeg');
-    res.send(audioBuffer);
-  } catch (error) {
-    console.error('TTS Route Error:', error.message);
-    res.status(404).send('TTS Failed');
   }
+  
+  res.sendStatus(200);
 });
 
 module.exports = router;
