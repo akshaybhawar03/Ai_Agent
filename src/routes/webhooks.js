@@ -4,7 +4,7 @@
 const express = require('express');
 const twilio = require('twilio');
 const { processConversation, postCallUpdate, getSession } = require('../services/callEngine');
-const { textToSpeech } = require('../services/openaiTTS');
+const { generateTTS } = require('../services/tts');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -174,8 +174,8 @@ router.get('/tts', async (req, res) => {
       return res.sendFile(cachePath);
     }
 
-    // Otherwise generate new audio using OpenAI TTS (with timeout)
-    console.log(`[TTS] Generating new audio with OpenAI for: "${text.substring(0, 30)}..."`);
+    // Otherwise generate new audio using Google TTS (with timeout)
+    console.log(`[TTS] Generating new audio with Google Cloud for: "${text.substring(0, 30)}..."`);
     
     let audioBuffer;
     try {
@@ -185,11 +185,11 @@ router.get('/tts', async (req, res) => {
       );
       
       audioBuffer = await Promise.race([
-        textToSpeech(text, voice),
+        generateTTS(text, voice),
         timeoutPromise
       ]);
-    } catch (oaError) {
-      console.warn(`[TTS] OpenAI/Timeout failed: ${oaError.message}`);
+    } catch (gError) {
+      console.warn(`[TTS] Google/Timeout failed: ${gError.message}`);
       // Return 404 to trigger Twilio's native voice fallback immediately
       return res.status(404).send('TTS Failed');
     }
