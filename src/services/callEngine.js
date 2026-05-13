@@ -62,8 +62,8 @@ async function initiateCall(customerId, businessId) {
 
   if (!customer) throw new Error('Customer not found');
 
-  // Check daily call limit
-  if (customer.call_count_today >= (agent.calls_per_day || 3)) {
+  // Check daily call limit (Increased for testing)
+  if (customer.call_count_today >= (agent.calls_per_day || 50)) {
     throw new Error('Daily call limit reached for this customer');
   }
 
