@@ -24,8 +24,11 @@ async function ensureAuthenticated() {
     const data = await response.json();
     console.log('[VoiceLink] Login Response:', JSON.stringify(data));
 
-    // Check for token in common places
-    const token = data.token || (data.data && data.data.token) || data.access_token;
+    // Check for token in common places (including data.data.access_token)
+    const token = data.token || 
+                  (data.data && data.data.token) || 
+                  (data.data && data.data.access_token) || 
+                  data.access_token;
 
     if (response.ok && token) {
       console.log('[VoiceLink] Login successful, token received');
