@@ -49,7 +49,7 @@ async function triggerVoiceLinkCall(customer, business) {
 
     console.log(`[VoiceLink] Triggering outbound call to ${customer.phone}`);
 
-    const response = await fetch('https://app.voicelink.co.in/api/v1/calls/outbound', {
+    const response = await fetch('https://app.voicelink.co.in/api/v1/voice/outbound', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
