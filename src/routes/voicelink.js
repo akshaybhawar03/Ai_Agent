@@ -7,7 +7,6 @@ const { createClient } = require('@deepgram/sdk');
 const OpenAI = require('openai');
 const textToSpeech = require('@google-cloud/text-to-speech');
 const { supabaseAdmin: supabase } = require('../services/supabase');
-const fetch = require('node-fetch');
 
 // Initialize clients lazily to prevent crash if keys are missing
 let deepgram = null;

@@ -1,5 +1,5 @@
-const fetch = require('node-fetch');
-// Deployment Timestamp: 2026-05-13T20:05:00Z
+// VoiceLink Service - Handles authentication and outbound call triggering
+// We use the native fetch available in Node 18+
 
 async function ensureAuthenticated() {
   if (process.env.VOICELINK_API_KEY) return process.env.VOICELINK_API_KEY;
@@ -10,6 +10,8 @@ async function ensureAuthenticated() {
       return null;
     }
     console.log(`[VoiceLink] Attempting login for user: ${process.env.VOICELINK_USERNAME}`);
+    
+    // Using global fetch (available in Node 22)
     const response = await fetch('https://app.voicelink.co.in/api/v1/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -37,6 +39,8 @@ async function triggerVoiceLinkCall(customer, business) {
     const token = await ensureAuthenticated();
     if (!token) throw new Error('VoiceLink authentication failed');
 
+    console.log(`[VoiceLink] Triggering outbound call to ${customer.phone}`);
+
     const response = await fetch('https://app.voicelink.co.in/api/v1/calls/outbound', {
       method: 'POST',
       headers: {
@@ -52,8 +56,8 @@ async function triggerVoiceLinkCall(customer, business) {
     });
 
     const data = await response.json();
-    if (!data.success && !data.id) {
-       throw new Error(data.message || 'VoiceLink API error');
+    if (response.status >= 400) {
+       throw new Error(data.message || `VoiceLink API error (Status ${response.status})`);
     }
     return data;
   } catch (err) {
