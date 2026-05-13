@@ -1,0 +1,57 @@
+const fetch = require('node-fetch');
+
+async function ensureAuthenticated() {
+  if (process.env.VOICELINK_API_KEY) return process.env.VOICELINK_API_KEY;
+
+  try {
+    if (!process.env.VOICELINK_USERNAME || !process.env.VOICELINK_PASSWORD) {
+      return null;
+    }
+    const response = await fetch('https://app.voicelink.co.in/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: process.env.VOICELINK_USERNAME,
+        password: process.env.VOICELINK_PASSWORD
+      })
+    });
+
+    const data = await response.json();
+    if (data.token) return data.token;
+    return null;
+  } catch (err) {
+    console.error('[VoiceLink Service Auth Error]', err.message);
+    return null;
+  }
+}
+
+async function triggerVoiceLinkCall(customer, business) {
+  try {
+    const token = await ensureAuthenticated();
+    if (!token) throw new Error('VoiceLink authentication failed');
+
+    const response = await fetch('https://app.voicelink.co.in/api/v1/calls/outbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        to: customer.phone,
+        from: process.env.VOICELINK_DID_NUMBER,
+        trunk_id: process.env.VOICELINK_TRUNK_ID,
+        websocket_url: `${process.env.WEBHOOK_BASE_URL.replace('https', 'wss')}/voicelink/ws`
+      })
+    });
+
+    const data = await response.json();
+    if (!data.success && !data.id) {
+       throw new Error(data.message || 'VoiceLink API error');
+    }
+    return data;
+  } catch (err) {
+    throw err;
+  }
+}
+
+module.exports = { triggerVoiceLinkCall };

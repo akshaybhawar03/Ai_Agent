@@ -4,6 +4,7 @@
  */
 const { supabaseAdmin } = require('../services/supabase');
 const { makeCall } = require('../services/twilio');
+const { triggerVoiceLinkCall } = require('./voicelink');
 const { getOpenAIClient, getModelName } = require('../services/openai');
 const { generatePrompt } = require('../utils/promptGenerator');
 const { detectOutcome, mapOutcomeToStatus } = require('../utils/outcomeDetector');
@@ -89,7 +90,29 @@ async function initiateCall(customerId, businessId) {
   const webhookBase = process.env.WEBHOOK_BASE_URL;
 
   try {
-    // Make the Twilio call
+    const isVoiceLinkEnabled = process.env.VOICELINK_DID_NUMBER && 
+                              (process.env.VOICELINK_API_KEY || (process.env.VOICELINK_USERNAME && process.env.VOICELINK_PASSWORD));
+
+    if (isVoiceLinkEnabled) {
+      console.log('[CallEngine] Using VoiceLink for call...');
+      const call = await triggerVoiceLinkCall(customer, business);
+      
+      await supabaseAdmin.from('call_logs').insert({
+        business_id: businessId,
+        customer_id: customerId,
+        customer_name: customer.customer_name,
+        customer_phone: customer.phone,
+        twilio_call_sid: call.id || sessionId, // VoiceLink ID as SID
+        status: 'initiated',
+        outcome: 'in_progress',
+        called_at: new Date().toISOString()
+      });
+
+      return { callId: call.id, sessionId, status: 'initiated', provider: 'voicelink' };
+    }
+
+    // Fallback to Twilio
+    console.log('[CallEngine] Using Twilio for call...');
     const call = await makeCall({
       to: formatPhoneE164(customer.phone),
       from: business.twilio_phone_number || process.env.TWILIO_PHONE_NUMBER,
@@ -114,7 +137,7 @@ async function initiateCall(customerId, businessId) {
       called_at: new Date().toISOString()
     });
 
-    return { callSid: call.sid, sessionId, status: 'initiated' };
+    return { callSid: call.sid, sessionId, status: 'initiated', provider: 'twilio' };
   } catch (error) {
     activeCalls.delete(sessionId);
     throw error;
