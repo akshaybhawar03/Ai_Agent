@@ -1,4 +1,5 @@
 const fetch = require('node-fetch');
+// Deployment Timestamp: 2026-05-13T20:05:00Z
 
 async function ensureAuthenticated() {
   if (process.env.VOICELINK_API_KEY) return process.env.VOICELINK_API_KEY;
