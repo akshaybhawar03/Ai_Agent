@@ -5,8 +5,10 @@ async function ensureAuthenticated() {
 
   try {
     if (!process.env.VOICELINK_USERNAME || !process.env.VOICELINK_PASSWORD) {
+      console.error('[VoiceLink] Missing VOICELINK_USERNAME or VOICELINK_PASSWORD in environment variables');
       return null;
     }
+    console.log(`[VoiceLink] Attempting login for user: ${process.env.VOICELINK_USERNAME}`);
     const response = await fetch('https://app.voicelink.co.in/api/v1/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -17,7 +19,11 @@ async function ensureAuthenticated() {
     });
 
     const data = await response.json();
-    if (data.token) return data.token;
+    if (response.ok && data.token) {
+      console.log('[VoiceLink] Login successful, token received');
+      return data.token;
+    }
+    console.error(`[VoiceLink] Login Failed (Status ${response.status}):`, data.message || JSON.stringify(data));
     return null;
   } catch (err) {
     console.error('[VoiceLink Service Auth Error]', err.message);
