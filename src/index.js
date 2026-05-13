@@ -69,7 +69,7 @@ server.listen(PORT, () => {
   console.log(`[AI Provider] ${process.env.GROQ_API_KEY ? 'Groq (Free - Llama 3.3)' : 'OpenAI'}`);
   console.log(`[Webhook URL] ${process.env.WEBHOOK_BASE_URL}`);
   
-  console.log(`[TTS Provider] Google Cloud (Wavenet)`);
+  console.log(`[TTS Provider] ElevenLabs (Premium)`);
 
   initScheduler();
 });

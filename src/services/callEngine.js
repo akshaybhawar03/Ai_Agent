@@ -132,12 +132,12 @@ async function processConversation(sessionId, userSpeech) {
     session.transcript += `Customer: ${userSpeech}\n`;
   }
 
-  const apiKey = session.business.openai_api_key || process.env.OPENAI_API_KEY;
+  const apiKey = session.business.groq_api_key || process.env.GROQ_API_KEY || session.business.openai_api_key || process.env.OPENAI_API_KEY;
   const client = getOpenAIClient(apiKey);
 
   // Get AI response
   const response = await client.chat.completions.create({
-    model: getModelName(),
+    model: process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : getModelName(),
     messages: session.messages,
     max_tokens: 100,
     temperature: 0.7
@@ -151,14 +151,14 @@ async function processConversation(sessionId, userSpeech) {
   const shouldEnd = aiMessage.toLowerCase().includes('namaste') &&
     (aiMessage.toLowerCase().includes('dhanyawad') || session.messages.length > 10);
 
-  // OpenAI TTS voices: alloy, echo, fable, onyx, nova, shimmer
-  // Default to onyx (best for Hindi male)
-  const voice = session.agent.gender === 'female' ? 'nova' : 'onyx';
+  // Use environment variable as master override for production voice consistency
+  // Fallback to Charlie (IKne3meq5a9ay08G9zUe) if no other ID is found
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || session.agent.voice_id || 'IKne3meq5a9ay08G9zUe';
     
   return {
     response: aiMessage,
     shouldEnd,
-    voice
+    voice_id: voiceId
   };
 }
 
