@@ -39,6 +39,11 @@ wss.on('connection', (ws, req) => {
 app.set('wsClients', wsClients);
 
 // Middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
