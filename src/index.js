@@ -12,6 +12,7 @@ const customerRoutes = require('./routes/customers');
 const callRoutes = require('./routes/calls');
 const statsRoutes = require('./routes/stats');
 const webhookRoutes = require('./routes/webhooks');
+const { router: voicelinkRouter, setupVoiceLinkWebSocket } = require('./routes/voicelink');
 
 // Middleware
 const authMiddleware = require('./middleware/auth');
@@ -38,6 +39,10 @@ wss.on('connection', (ws, req) => {
 // Make WS broadcast available globally
 app.set('wsClients', wsClients);
 
+// VoiceLink WebSocket
+const voicelinkWss = new WebSocketServer({ server, path: '/voicelink/ws' });
+setupVoiceLinkWebSocket(voicelinkWss);
+
 // Middleware
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
@@ -54,6 +59,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISO
 // Public routes
 app.use('/auth', authRoutes);
 app.use('/webhook/twilio', webhookRoutes);
+app.use('/voicelink', voicelinkRouter);
 
 // Protected routes
 app.use('/api/business', authMiddleware, businessRoutes);
