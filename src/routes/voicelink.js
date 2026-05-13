@@ -267,6 +267,33 @@ router.post('/webhook', async (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Helper to ensure we have a valid token
+async function ensureAuthenticated() {
+  if (process.env.VOICELINK_API_KEY) return process.env.VOICELINK_API_KEY;
+
+  try {
+    console.log('[VoiceLink] Authenticating via login...');
+    const response = await fetch('https://app.voicelink.co.in/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: process.env.VOICELINK_USERNAME,
+        password: process.env.VOICELINK_PASSWORD
+      })
+    });
+
+    const data = await response.json();
+    if (data.token) {
+      console.log('[VoiceLink] Login successful');
+      return data.token;
+    }
+    throw new Error(data.message || 'Login failed');
+  } catch (err) {
+    console.error('[VoiceLink Auth Error]', err.message);
+    return null;
+  }
+}
+
 // Outbound call trigger via VoiceLink API
 router.post('/call', async (req, res) => {
   try {
@@ -279,13 +306,16 @@ router.post('/call', async (req, res) => {
 
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
+    const token = await ensureAuthenticated();
+    if (!token) return res.status(401).json({ error: 'VoiceLink authentication failed' });
+
     console.log(`[VoiceLink] Initiating call to ${customer.phone}`);
 
     const response = await fetch('https://app.voicelink.co.in/api/v1/calls/outbound', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.VOICELINK_API_KEY}`
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
         to: customer.phone,
