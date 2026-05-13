@@ -237,21 +237,37 @@ async function getAIResponse(session, userText) {
 
 async function textToSpeechConvert(text) {
   try {
-    if (!ttsClient) return null;
-    const request = {
-      input: { text },
-      voice: {
-        languageCode: 'hi-IN',
-        name: 'hi-IN-Wavenet-C',
-        ssmlGender: 'MALE'
-      },
-      audioConfig: {
-        audioEncoding: 'MP3',
-        speakingRate: 1.1
-      }
-    };
-    const [response] = await ttsClient.synthesizeSpeech(request);
-    return response.audioContent;
+    // 1. Try Google TTS if key is present
+    if (ttsClient) {
+      const request = {
+        input: { text },
+        voice: {
+          languageCode: 'hi-IN',
+          name: 'hi-IN-Wavenet-C',
+          ssmlGender: 'MALE'
+        },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          speakingRate: 1.1
+        }
+      };
+      const [response] = await ttsClient.synthesizeSpeech(request);
+      return response.audioContent;
+    } 
+    
+    // 2. Fallback to OpenAI TTS (since user already has this key)
+    if (openai) {
+      console.log('[VoiceLink] Using OpenAI TTS fallback');
+      const mp3 = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: "onyx", // Best for Hindi male
+        input: text,
+      });
+      const buffer = Buffer.from(await mp3.arrayBuffer());
+      return buffer;
+    }
+
+    return null;
   } catch (err) {
     console.error('[TTS Error]', err.message);
     return null;
