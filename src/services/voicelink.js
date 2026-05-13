@@ -53,6 +53,7 @@ async function triggerVoiceLinkCall(customer, business) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
@@ -63,8 +64,17 @@ async function triggerVoiceLinkCall(customer, business) {
       })
     });
 
-    const data = await response.json();
-    if (response.status >= 400) {
+    const responseText = await response.text();
+    console.log(`[VoiceLink] Call Response (Status ${response.status}):`, responseText.substring(0, 200));
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      throw new Error(`VoiceLink returned non-JSON response. Status: ${response.status}. Body: ${responseText.substring(0, 100)}`);
+    }
+
+    if (response.status >= 400 || (!data.success && !data.id)) {
        throw new Error(data.message || `VoiceLink API error (Status ${response.status})`);
     }
     return data;
