@@ -9,11 +9,30 @@ const textToSpeech = require('@google-cloud/text-to-speech');
 const { supabaseAdmin: supabase } = require('../services/supabase');
 const fetch = require('node-fetch');
 
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const ttsClient = new textToSpeech.TextToSpeechClient({
-  apiKey: process.env.GOOGLE_TTS_API_KEY
-});
+// Initialize clients lazily to prevent crash if keys are missing
+let deepgram = null;
+let openai = null;
+let ttsClient = null;
+
+function initClients() {
+  if (!openai && process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  
+  if (!deepgram && process.env.DEEPGRAM_API_KEY) {
+    deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+  }
+  
+  if (!ttsClient && process.env.GOOGLE_TTS_API_KEY) {
+    try {
+      ttsClient = new textToSpeech.TextToSpeechClient({
+        apiKey: process.env.GOOGLE_TTS_API_KEY
+      });
+    } catch (e) {
+      console.error('[VoiceLink] Failed to init Google TTS:', e.message);
+    }
+  }
+}
 
 // Store active sessions
 const sessions = new Map();
@@ -21,6 +40,15 @@ const sessions = new Map();
 // WebSocket handler for VoiceLink
 function setupVoiceLinkWebSocket(wss) {
   wss.on('connection', async (ws, req) => {
+    initClients();
+    
+    if (!deepgram || !openai || !ttsClient) {
+      console.error('[VoiceLink WS] Missing API keys. Cannot process call.');
+      ws.send(JSON.stringify({ type: 'error', message: 'Server configuration missing' }));
+      ws.close();
+      return;
+    }
+
     const sessionId = req.url.split('?')[0].split('/').pop() || Date.now().toString();
     console.log('[VoiceLink WS] Connected:', sessionId);
 
@@ -209,6 +237,7 @@ async function getAIResponse(session, userText) {
 
 async function textToSpeechConvert(text) {
   try {
+    if (!ttsClient) return null;
     const request = {
       input: { text },
       voice: {
@@ -261,17 +290,14 @@ async function handleCallEnd(session) {
   }
 }
 
-// Webhook endpoint for VoiceLink events
-router.post('/webhook', async (req, res) => {
-  console.log('[VoiceLink Webhook]', req.body);
-  res.json({ status: 'ok' });
-});
-
 // Helper to ensure we have a valid token
 async function ensureAuthenticated() {
   if (process.env.VOICELINK_API_KEY) return process.env.VOICELINK_API_KEY;
 
   try {
+    if (!process.env.VOICELINK_USERNAME || !process.env.VOICELINK_PASSWORD) {
+      return null;
+    }
     console.log('[VoiceLink] Authenticating via login...');
     const response = await fetch('https://app.voicelink.co.in/api/v1/auth/login', {
       method: 'POST',
@@ -293,6 +319,12 @@ async function ensureAuthenticated() {
     return null;
   }
 }
+
+// Webhook endpoint for VoiceLink events
+router.post('/webhook', async (req, res) => {
+  console.log('[VoiceLink Webhook]', req.body);
+  res.json({ status: 'ok' });
+});
 
 // Outbound call trigger via VoiceLink API
 router.post('/call', async (req, res) => {
