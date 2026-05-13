@@ -22,11 +22,16 @@ async function ensureAuthenticated() {
     });
 
     const data = await response.json();
-    if (response.ok && data.token) {
+    console.log('[VoiceLink] Login Response:', JSON.stringify(data));
+
+    // Check for token in common places
+    const token = data.token || (data.data && data.data.token) || data.access_token;
+
+    if (response.ok && token) {
       console.log('[VoiceLink] Login successful, token received');
-      return data.token;
+      return token;
     }
-    console.error(`[VoiceLink] Login Failed (Status ${response.status}):`, data.message || JSON.stringify(data));
+    console.error(`[VoiceLink] Login Failed (Status ${response.status}):`, data.message || 'No token found in response');
     return null;
   } catch (err) {
     console.error('[VoiceLink Service Auth Error]', err.message);
