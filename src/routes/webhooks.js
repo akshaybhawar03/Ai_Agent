@@ -4,8 +4,7 @@
 const express = require('express');
 const twilio = require('twilio');
 const { processConversation, postCallUpdate, getSession } = require('../services/callEngine');
-const { textToSpeech: elevenLabsTTS } = require('../services/elevenlabs');
-const { textToSpeech: deepgramTTS } = require('../services/deepgram');
+const { textToSpeech } = require('../services/openaiTTS');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -19,11 +18,11 @@ if (!fs.existsSync(CACHE_DIR)) {
 const router = express.Router();
 
 // Helper to get TTS URL
-const getTtsUrl = (text, sessionId) => {
+const getTtsUrl = (text, sessionId, voice = 'onyx') => {
   try {
     const baseUrl = process.env.WEBHOOK_BASE_URL || '';
     if (!baseUrl) return null; // Return null if no base URL
-    return `${baseUrl}/webhook/twilio/tts?text=${encodeURIComponent(text)}&sessionId=${sessionId}`;
+    return `${baseUrl}/webhook/twilio/tts?text=${encodeURIComponent(text)}&sessionId=${sessionId}&voice=${voice}`;
   } catch (e) {
     return null;
   }
@@ -51,7 +50,7 @@ router.post('/voice', async (req, res) => {
     const result = await processConversation(sessionId, null);
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
-    const ttsUrl = getTtsUrl(result.response, sessionId);
+    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice);
     if (ttsUrl) {
       response.play(ttsUrl);
     }
@@ -108,7 +107,7 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
-    const ttsUrl = getTtsUrl(result.response, sessionId);
+    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice);
     if (ttsUrl) {
       response.play(ttsUrl);
     }
@@ -161,8 +160,7 @@ router.post('/recording', async (req, res) => {
 
 // GET /webhook/twilio/tts - Dynamic TTS generation for <Play>
 router.get('/tts', async (req, res) => {
-  const text = req.query.text;
-  const sessionId = req.query.sessionId;
+  const { text, sessionId, voice } = req.query;
 
   if (!text) return res.status(400).send('Text required');
 
@@ -176,8 +174,8 @@ router.get('/tts', async (req, res) => {
       return res.sendFile(cachePath);
     }
 
-    // Otherwise generate new audio using Deepgram (with timeout)
-    console.log(`[TTS] Generating new audio with Deepgram for: "${text.substring(0, 30)}..."`);
+    // Otherwise generate new audio using OpenAI TTS (with timeout)
+    console.log(`[TTS] Generating new audio with OpenAI for: "${text.substring(0, 30)}..."`);
     
     let audioBuffer;
     try {
@@ -187,11 +185,11 @@ router.get('/tts', async (req, res) => {
       );
       
       audioBuffer = await Promise.race([
-        deepgramTTS(text),
+        textToSpeech(text, voice),
         timeoutPromise
       ]);
-    } catch (dgError) {
-      console.warn(`[TTS] Deepgram/Timeout failed: ${dgError.message}`);
+    } catch (oaError) {
+      console.warn(`[TTS] OpenAI/Timeout failed: ${oaError.message}`);
       // Return 404 to trigger Twilio's native voice fallback immediately
       return res.status(404).send('TTS Failed');
     }
