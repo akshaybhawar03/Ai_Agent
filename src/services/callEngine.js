@@ -151,14 +151,14 @@ async function processConversation(sessionId, userSpeech) {
   const shouldEnd = aiMessage.toLowerCase().includes('namaste') &&
     (aiMessage.toLowerCase().includes('dhanyawad') || session.messages.length > 10);
 
-  // Use environment variable as master override for production voice consistency
-  // Fallback to Charlie (IKne3meq5a9ay08G9zUe) if no other ID is found
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || session.agent.voice_id || 'IKne3meq5a9ay08G9zUe';
+  // OpenAI TTS voices: alloy, echo, fable, onyx, nova, shimmer
+  // Default to onyx (best for Hindi male)
+  const voice = session.agent.gender === 'female' ? 'nova' : 'onyx';
     
   return {
     response: aiMessage,
     shouldEnd,
-    voice_id: voiceId
+    voice
   };
 }
 

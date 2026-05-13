@@ -4,7 +4,7 @@
 const express = require('express');
 const twilio = require('twilio');
 const { processConversation, postCallUpdate, getSession } = require('../services/callEngine');
-const { textToSpeech: elevenLabsTTS } = require('../services/elevenlabs');
+const { textToSpeech: openaiTTS } = require('../services/openaiTTS');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -50,7 +50,7 @@ router.post('/voice', async (req, res) => {
     const result = await processConversation(sessionId, null);
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
-    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice_id);
+    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice);
     if (ttsUrl) {
       response.play(ttsUrl);
     }
@@ -107,7 +107,7 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
-    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice_id);
+    const ttsUrl = getTtsUrl(result.response, sessionId, result.voice);
     if (ttsUrl) {
       response.play(ttsUrl);
     }
@@ -160,7 +160,7 @@ router.post('/recording', async (req, res) => {
 
 // GET /webhook/twilio/tts - Dynamic TTS generation for <Play>
 router.get('/tts', async (req, res) => {
-  const { text, sessionId, voice: voiceId } = req.query;
+  const { text, sessionId, voice } = req.query;
 
   if (!text) return res.status(400).send('Text required');
 
@@ -174,8 +174,8 @@ router.get('/tts', async (req, res) => {
       return res.sendFile(cachePath);
     }
 
-    // Otherwise generate new audio using ElevenLabs (with timeout)
-    console.log(`[TTS] Generating new audio with ElevenLabs for: "${text.substring(0, 30)}..."`);
+    // Otherwise generate new audio using OpenAI TTS (with timeout)
+    console.log(`[TTS] Generating new audio with OpenAI for: "${text.substring(0, 30)}..."`);
     
     let audioBuffer;
     try {
@@ -185,11 +185,11 @@ router.get('/tts', async (req, res) => {
       );
       
       audioBuffer = await Promise.race([
-        elevenLabsTTS(text, voiceId),
+        openaiTTS(text, voice),
         timeoutPromise
       ]);
-    } catch (elError) {
-      console.warn(`[TTS] ElevenLabs/Timeout failed: ${elError.message}`);
+    } catch (oaError) {
+      console.warn(`[TTS] OpenAI/Timeout failed: ${oaError.message}`);
       // Return 404 to trigger Twilio's native voice fallback immediately
       return res.status(404).send('TTS Failed');
     }
