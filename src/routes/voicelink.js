@@ -103,7 +103,7 @@ function setupVoiceLinkWebSocket(wss) {
           if (!aiClient) throw new Error('No AI client available');
 
           const response = await aiClient.chat.completions.create({
-            model: 'gpt-4o-mini', // Forced gpt-4o-mini for speed and reliability
+            model: 'gpt-4o', // Switched from gpt-4o-mini to gpt-4o for tier compatibility
             messages: session.messages,
             max_tokens: 60,
             temperature: 0.1,
