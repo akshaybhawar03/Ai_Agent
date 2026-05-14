@@ -41,6 +41,15 @@ app.set('wsClients', wsClients);
 
 // VoiceLink WebSocket
 const voicelinkWss = new WebSocketServer({ server, path: '/voicelink/ws' });
+
+voicelinkWss.on('connection', (ws, req) => {
+  console.log(`[VoiceLink WS] New Connection Attempt from ${req.socket.remoteAddress} to ${req.url}`);
+});
+
+voicelinkWss.on('error', (err) => {
+  console.error('[VoiceLink WSS Server Error]', err);
+});
+
 setupVoiceLinkWebSocket(voicelinkWss);
 
 // Middleware

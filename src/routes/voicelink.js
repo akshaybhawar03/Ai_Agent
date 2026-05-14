@@ -31,15 +31,14 @@ function setupVoiceLinkWebSocket(wss) {
   wss.on('connection', async (ws, req) => {
     initClients();
     
+    const sessionId = req.url.split('?')[0].split('/').pop() || Date.now().toString();
+    console.log('[VoiceLink WS] Session Connected:', sessionId);
+
     if (!deepgram || !openai) {
-      console.error('[VoiceLink WS] Missing core API keys (OpenAI/Deepgram). Cannot process call.');
-      ws.send(JSON.stringify({ type: 'error', message: 'Server configuration missing' }));
+      console.error('[VoiceLink WS] Missing core API keys. Closing.');
       ws.close();
       return;
     }
-
-    const sessionId = req.url.split('?')[0].split('/').pop() || Date.now().toString();
-    console.log('[VoiceLink WS] Connected:', sessionId);
 
     const session = {
       id: sessionId,
@@ -49,10 +48,14 @@ function setupVoiceLinkWebSocket(wss) {
       customerData: null,
       agentData: null,
       businessData: null,
-      isGreeting: true,
+      isGreetingSent: false,
       deepgramLive: null
     };
     sessions.set(sessionId, session);
+
+    // Parse session ID or customer ID from URL if present
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const customerId = url.searchParams.get('customer_id') || sessionId;
 
     try {
       // Setup Deepgram live transcription (STT)
@@ -73,61 +76,49 @@ function setupVoiceLinkWebSocket(wss) {
         const transcript = data.channel?.alternatives?.[0]?.transcript;
         if (!transcript || transcript.trim() === '') return;
 
-        console.log('[VoiceLink STT]', transcript);
+        console.log(`[VoiceLink STT ${sessionId}]`, transcript);
         session.transcript.push({ role: 'customer', text: transcript });
 
-        // Get AI response
         const aiResponse = await getAIResponse(session, transcript);
         if (aiResponse) {
-          // Convert to audio using free edge-tts
-          const gender = session.agentData?.gender === 'male' ? 'male' : 'female';
-          const audioBuffer = await generateTTS(aiResponse, gender);
-          if (audioBuffer && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'audio',
-              data: audioBuffer.toString('base64'),
-              encoding: 'mp3'
-            }));
-          }
+          await sendAudio(session, aiResponse);
         }
       });
 
-      deepgramLive.on('error', (err) => {
-        console.error('[VoiceLink] Deepgram Error:', err);
-      });
-
+      deepgramLive.on('error', (err) => console.error('[VoiceLink] Deepgram Error:', err));
       session.deepgramLive = deepgramLive;
     } catch (err) {
       console.error('[VoiceLink] Deepgram Setup Error:', err);
     }
 
-    // Handle incoming messages from VoiceLink
+    // Handle incoming messages
     ws.on('message', async (data) => {
+      // console.log(`[VoiceLink WS Message ${sessionId}] Size: ${data.length} bytes`);
+      
       try {
-        // Try to parse as JSON first (control messages)
         const message = JSON.parse(data.toString());
+        console.log(`[VoiceLink JSON ${sessionId}]`, message);
         
-        if (message.type === 'start') {
-          // Call started - load customer data
-          console.log('[VoiceLink] Call started:', message);
-          await loadSessionData(session, message);
-          
-          // Send greeting
-          const greeting = await generateGreeting(session);
-          const gender = session.agentData?.gender === 'male' ? 'male' : 'female';
-          const audioBuffer = await generateTTS(greeting, gender);
-          if (audioBuffer && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'audio',
-              data: audioBuffer.toString('base64'),
-              encoding: 'mp3'
-            }));
+        if (message.event === 'start' || message.type === 'start') {
+          await loadSessionData(session, message, customerId);
+          if (!session.isGreetingSent) {
+            const greeting = await generateGreeting(session);
+            await sendAudio(session, greeting);
+            session.isGreetingSent = true;
           }
-        } else if (message.type === 'stop') {
+        } else if (message.event === 'stop' || message.type === 'stop') {
           await handleCallEnd(session);
         }
       } catch {
-        // Binary audio data from customer
+        // Assume binary audio
+        if (!session.isGreetingSent) {
+          // Send greeting on first audio chunk if not already sent
+          await loadSessionData(session, {}, customerId);
+          const greeting = await generateGreeting(session);
+          await sendAudio(session, greeting);
+          session.isGreetingSent = true;
+        }
+
         if (session.deepgramLive && session.deepgramLive.getReadyState() === 1) {
           session.deepgramLive.send(data);
         }
@@ -135,46 +126,63 @@ function setupVoiceLinkWebSocket(wss) {
     });
 
     ws.on('close', async () => {
-      console.log('[VoiceLink WS] Disconnected:', sessionId);
-      if (session.deepgramLive) {
-        session.deepgramLive.finish();
-      }
+      console.log('[VoiceLink WS] Session Disconnected:', sessionId);
+      if (session.deepgramLive) session.deepgramLive.finish();
       await handleCallEnd(session);
       sessions.delete(sessionId);
-    });
-
-    ws.on('error', (err) => {
-      console.error('[VoiceLink WS] Error:', err);
     });
   });
 }
 
-async function loadSessionData(session, message) {
+async function sendAudio(session, text) {
   try {
-    const phone = message.from || message.caller_id || message.customer_number;
-    if (phone) {
-      const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    const gender = session.agentData?.gender === 'male' ? 'male' : 'female';
+    const audioBuffer = await generateTTS(text, gender);
+    if (audioBuffer && session.ws.readyState === WebSocket.OPEN) {
+      session.ws.send(JSON.stringify({
+        event: 'audio',
+        data: audioBuffer.toString('base64'),
+        encoding: 'mp3'
+      }));
+      console.log(`[VoiceLink Audio Sent] Text: ${text.substring(0, 30)}...`);
+    }
+  } catch (err) {
+    console.error('[VoiceLink Send Audio Error]', err);
+  }
+}
+
+async function loadSessionData(session, message, customerId) {
+  if (session.customerData) return; // Already loaded
+
+  try {
+    // 1. Try loading by customerId (UUID)
+    if (customerId && customerId.length > 20) {
       const { data: customer } = await supabase
         .from('customers')
         .select('*')
-        .or(`phone.ilike.%${cleanPhone}%`)
+        .eq('id', customerId)
         .single();
       session.customerData = customer;
     }
 
-    const { data: agent } = await supabase
-      .from('agent_config')
-      .select('*')
-      .eq('is_active', true)
-      .limit(1)
-      .single();
-    session.agentData = agent;
+    // 2. Fallback to phone number from message
+    if (!session.customerData) {
+      const phone = message.from || message.caller_id || message.customer_number;
+      if (phone) {
+        const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('*')
+          .ilike('phone', `%${cleanPhone}%`)
+          .single();
+        session.customerData = customer;
+      }
+    }
 
-    const { data: business } = await supabase
-      .from('business_profile')
-      .select('*')
-      .limit(1)
-      .single();
+    const { data: agent } = await supabase.from('agent_config').select('*').eq('is_active', true).limit(1).single();
+    const { data: business } = await supabase.from('business_profile').select('*').limit(1).single();
+    
+    session.agentData = agent;
     session.businessData = business;
 
     if (session.customerData && session.agentData && session.businessData) {
@@ -182,13 +190,13 @@ async function loadSessionData(session, message) {
       session.messages = [{ role: 'system', content: systemPrompt }];
     }
   } catch (err) {
-    console.error('[VoiceLink] Data Load Error:', err.message);
+    console.error('[VoiceLink Data Load Error]', err.message);
   }
 }
 
 async function generateGreeting(session) {
   if (!session.agentData || !session.customerData) {
-    return 'Namaste! Main aapka AI assistant bol raha hoon. Kaise madad kar sakta hoon?';
+    return 'Namaste! Main aapka AI assistant bol raha hoon. Kya aap meri aawaj sun sakte hain?';
   }
   const { agent_name, gender } = session.agentData;
   const isMale = gender === 'male';
@@ -198,7 +206,6 @@ async function generateGreeting(session) {
 async function getAIResponse(session, userText) {
   try {
     if (!session.messages.length) return null;
-    
     session.messages.push({ role: 'user', content: userText });
     
     const response = await openai.chat.completions.create({
@@ -211,26 +218,16 @@ async function getAIResponse(session, userText) {
     const aiText = response.choices[0].message.content;
     session.messages.push({ role: 'assistant', content: aiText });
     session.transcript.push({ role: 'agent', text: aiText });
-
-    // Close call if user says thank you or goodbye
-    if (aiText.toLowerCase().includes('namaste') && session.messages.length > 4) {
-      setTimeout(() => session.ws?.close(), 3000);
-    }
-
     return aiText;
   } catch (err) {
-    console.error('[VoiceLink] OpenAI Error:', err.message);
-    return 'Maaf kijiye, kuch technical error hai.';
+    console.error('[VoiceLink AI Error]', err.message);
+    return 'Maaf kijiye, main samajh nahi paya.';
   }
 }
 
 async function handleCallEnd(session) {
   if (session.transcript.length === 0) return;
-  
-  const fullTranscript = session.transcript
-    .map(t => `${t.role}: ${t.text}`)
-    .join('\n');
-
+  const fullTranscript = session.transcript.map(t => `${t.role}: ${t.text}`).join('\n');
   try {
     const outcome = await detectOutcome(fullTranscript);
     if (session.customerData?.id) {
@@ -244,36 +241,23 @@ async function handleCallEnd(session) {
         status: 'completed',
         called_at: new Date().toISOString()
       });
-
-      await supabase.from('customers').update({
-        status: outcome.outcome,
-        last_call_date: new Date()
-      }).eq('id', session.customerData.id);
+      await supabase.from('customers').update({ status: outcome.outcome, last_call_date: new Date() }).eq('id', session.customerData.id);
     }
   } catch (err) {
     console.error('[Call End Error]', err);
   }
 }
 
-// Webhook endpoint for VoiceLink events
 router.post('/webhook', async (req, res) => {
-  console.log('[VoiceLink Webhook]', req.body);
+  console.log('[VoiceLink Webhook]', JSON.stringify(req.body, null, 2));
   res.json({ status: 'ok' });
 });
 
-// Outbound call trigger via VoiceLink service
 router.post('/call', async (req, res) => {
   try {
     const { customerId } = req.body;
-    const { data: customer } = await supabase
-      .from('customers')
-      .select('*')
-      .eq('id', customerId)
-      .single();
-
+    const { data: customer } = await supabase.from('customers').select('*').eq('id', customerId).single();
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
-
-    console.log(`[VoiceLink] Initiating call to ${customer.phone}`);
     const data = await triggerVoiceLinkCall(customer, {});
     res.json({ success: true, call: data });
   } catch (err) {

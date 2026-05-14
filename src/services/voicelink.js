@@ -60,7 +60,7 @@ async function triggerVoiceLinkCall(customer, business) {
         did_number: cleanFrom,
         customer_number: cleanTo,
         country_code: "91",
-        websocket_url: `${process.env.WEBHOOK_BASE_URL.replace('https', 'wss')}/voicelink/ws`,
+        websocket_url: `${process.env.WEBHOOK_BASE_URL.replace('https', 'wss')}/voicelink/ws?customer_id=${customer.id}`,
         custom_parameters: JSON.stringify({ customer_id: customer.id })
       })
     });
