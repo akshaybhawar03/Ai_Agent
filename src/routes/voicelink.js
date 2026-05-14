@@ -4,28 +4,13 @@ const WebSocket = require('ws');
 const { generatePrompt } = require('../utils/promptGenerator');
 const { detectOutcome } = require('../utils/outcomeDetector');
 const { createClient } = require('@deepgram/sdk');
-const OpenAI = require('openai');
 const { supabaseAdmin: supabase } = require('../services/supabase');
 const { triggerVoiceLinkCall } = require('../services/voicelink');
 const { generateTTS } = require('../services/tts');
 
 // Initialize clients
 let deepgram = null;
-let groq = null;
-let openai = null;
-
 function initClients() {
-  if (!openai && process.env.OPENAI_API_KEY) {
-    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  
-  // Use Groq as primary for AI if available
-  if (!groq && process.env.GROQ_API_KEY) {
-    groq = new OpenAI({
-      apiKey: process.env.GROQ_API_KEY,
-      baseURL: 'https://api.groq.com/openai/v1'
-    });
-  }
 
   if (!deepgram && process.env.DEEPGRAM_API_KEY) {
     deepgram = createClient(process.env.DEEPGRAM_API_KEY);
@@ -97,27 +82,10 @@ function setupVoiceLinkWebSocket(wss) {
             await loadSessionData(session, {}, customerId);
           }
           
-          session.messages.push({ role: 'user', content: transcript });
-          
-          const aiClient = groq || openai;
-          if (!aiClient) throw new Error('No AI client available');
-
-          const response = await aiClient.chat.completions.create({
-            model: 'gpt-4o', // Switched from gpt-4o-mini to gpt-4o for tier compatibility
-            messages: session.messages,
-            max_tokens: 60,
-            temperature: 0.1,
-            top_p: 0.5,
-            frequency_penalty: 1.0,
-            presence_penalty: 0.5
-          });
-
-          const aiText = response.choices[0].message.content;
-          session.messages.push({ role: 'assistant', content: aiText });
-          session.transcript.push({ role: 'agent', text: aiText });
-          
-          console.log('[VoiceLink AI Response]', aiText);
-          await sendAudio(session, aiText);
+          const aiText = await getAIResponse(session, transcript);
+          if (aiText) {
+            await sendAudio(session, aiText);
+          }
         } catch (err) {
           console.error('[VoiceLink AI Error]', err.message);
         }
@@ -282,5 +250,46 @@ router.post('/call', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+async function getAIResponse(session, userText) {
+  if (!session.messages || session.messages.length === 0) return null;
+
+  session.messages.push({ role: 'user', content: userText });
+
+  try {
+    const response = await fetch('https://api.sarvam.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'api-subscription-key': process.env.SARVAM_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'sarvam-m',
+        messages: session.messages,
+        max_tokens: 60,
+        temperature: 0.1,
+        top_p: 0.5
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('[Sarvam LLM Error]', err);
+      return null;
+    }
+
+    const data = await response.json();
+    const aiText = data.choices[0].message.content;
+    
+    session.messages.push({ role: 'assistant', content: aiText });
+    session.transcript.push({ role: 'agent', text: aiText });
+    
+    console.log('[Sarvam AI Response]', aiText);
+    return aiText;
+  } catch (err) {
+    console.error('[Sarvam LLM Fetch Error]', err.message);
+    return null;
+  }
+}
 
 module.exports = { router, setupVoiceLinkWebSocket };
