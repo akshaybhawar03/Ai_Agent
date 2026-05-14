@@ -166,17 +166,34 @@ async function sendAudio(session, text) {
     
     if (!audioBuffer || session.ws.readyState !== WebSocket.OPEN) return;
     
-    // VoiceLink requires this exact JSON format with base64 payload
-    const payload = {
-      event: 'media',
-      stream_sid: session.streamSid,
-      media: {
-        payload: audioBuffer.toString('base64')
-      }
-    };
+    // Step 1: Send 'clear' event to stop any currently playing audio
+    session.ws.send(JSON.stringify({
+      event: 'clear',
+      stream_sid: session.streamSid
+    }));
     
-    session.ws.send(JSON.stringify(payload));
-    console.log('[VoiceLink Sent] JSON media event, size:', audioBuffer.length);
+    // Step 2: Send audio in chunks of 3200 bytes (approx 400ms each)
+    // This helps in smoother streaming and reduces buffering issues
+    const chunkSize = 3200;
+    for (let i = 0; i < audioBuffer.length; i += chunkSize) {
+      const chunk = audioBuffer.slice(i, i + chunkSize);
+      session.ws.send(JSON.stringify({
+        event: 'media',
+        stream_sid: session.streamSid,
+        media: {
+          payload: chunk.toString('base64')
+        }
+      }));
+    }
+    
+    // Step 3: Send 'mark' event to signal end of current audio segment
+    session.ws.send(JSON.stringify({
+      event: 'mark',
+      stream_sid: session.streamSid,
+      mark: { name: 'audio_complete' }
+    }));
+    
+    console.log('[VoiceLink Sent] Chunked audio stream, total size:', audioBuffer.length);
   } catch (err) {
     console.error('[VoiceLink Send Audio Error]', err.message);
   }
