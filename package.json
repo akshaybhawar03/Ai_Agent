@@ -8,6 +8,7 @@
     "dev": "nodemon src/index.js"
   },
   "dependencies": {
+    "@cartesia/cartesia-js": "^3.0.0",
     "@deepgram/sdk": "^3.13.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/text-to-speech": "^6.4.1",
