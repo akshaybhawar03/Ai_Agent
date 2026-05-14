@@ -3,11 +3,11 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const ffmpegPath = require('ffmpeg-static');
+const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 
 /**
  * Generates high-quality speech and converts it to telephony-compatible mulaw 8kHz.
- * Uses ffmpeg-static for portability.
+ * Uses @ffmpeg-installer/ffmpeg for portability.
  */
 async function generateTTS(text) {
   try {
@@ -37,9 +37,9 @@ async function generateTTS(text) {
     
     // Convert MP3 to PCMU (mulaw) 8khz mono using portable ffmpeg
     try {
-      execSync(`"${ffmpegPath}" -i ${tmpMp3} -ar 8000 -ac 1 -f mulaw ${tmpPcm} -y 2>/dev/null`);
+      execSync(`"${ffmpeg.path}" -i ${tmpMp3} -ar 8000 -ac 1 -f mulaw ${tmpPcm} -y 2>/dev/null`);
     } catch (e) {
-      console.error('[TTS] Portable ffmpeg conversion failed:', e.message);
+      console.error('[TTS] ffmpeg conversion failed:', e.message);
       throw e;
     }
     

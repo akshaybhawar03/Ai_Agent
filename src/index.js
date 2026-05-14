@@ -105,13 +105,13 @@ server.listen(PORT, () => {
   console.log(`[Webhook URL] ${process.env.WEBHOOK_BASE_URL}`);
   
   // Check for ffmpeg
-  const ffmpegPath = require('ffmpeg-static');
+  const ffmpeg = require('@ffmpeg-installer/ffmpeg');
   const { execSync } = require('child_process');
   try {
-    execSync(`"${ffmpegPath}" -version`);
-    console.log('[ffmpeg] Available (Static) ✅');
+    execSync(`"${ffmpeg.path}" -version`);
+    console.log('[ffmpeg] Available (Installer) ✅');
   } catch (err) {
-    console.warn('[ffmpeg] NOT available ❌ - Check ffmpeg-static installation');
+    console.warn('[ffmpeg] NOT available ❌ - Check @ffmpeg-installer/ffmpeg installation');
   }
 
   initScheduler();
