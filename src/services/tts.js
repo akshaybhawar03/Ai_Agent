@@ -32,7 +32,7 @@ async function generateTTS(text) {
           encoding: 'pcm_s16le',
           sample_rate: 8000
         },
-        loudness: 1.0, 
+        loudness: 0.3, // Diagnostic: Super quiet to check if it's encoding or volume
         language: 'hi'
       })
     });
