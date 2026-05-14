@@ -186,29 +186,17 @@ async function loadSessionData(session, startData, customerId) {
          "Namaste! Kya main aapse payment ke baare mein baat kar sakta hoon?"
          Short and polite raho. Max 2 sentences per response.`;
 
-    session.messages = [
-      { role: 'system', content: systemPrompt },
-      { 
-        role: 'system', 
-        content: `ENFORCEMENT RULES - IN PRIORITY ORDER:
-1. NEVER ask how customer wants to pay - that is NOT your job
-2. NEVER explain payment methods (online/office/UPI etc)  
-3. NEVER ask for account details or order details - you already know them
-4. Your ONLY job: Get a payment DATE from customer
-5. Keep response under 20 words always
-6. If customer says haan/yes - immediately ask for a specific date
-7. If you have a date - say "Dhanyawad, namaskar!" and STOP completely
-8. Speak only Hinglish - NO full English sentences ever`
-      }
-    ];
+    const combinedPrompt = `${systemPrompt}\n\nENFORCEMENT RULES - IN PRIORITY ORDER:\n1. NEVER ask how customer wants to pay - that is NOT your job\n2. NEVER explain payment methods (online/office/UPI etc)\n3. NEVER ask for account details or order details - you already know them\n4. Your ONLY job: Get a payment DATE from customer\n5. Keep response under 20 words always\n6. If customer says haan/yes - immediately ask for a specific date\n7. If you have a date - say "Dhanyawad, namaskar!" and STOP completely\n8. Speak only Hinglish - NO full English sentences ever`;
+
+    session.messages = [{ role: 'system', content: combinedPrompt }];
     console.log(`[VoiceLink] System prompt set for customer: ${session.customerData?.customer_name || 'Unknown'}`);
     
   } catch (err) {
     console.error('[VoiceLink Load Data Error]', err.message);
-    session.messages = [
-      { role: 'system', content: 'Tu ek professional Hindi collection agent hai. Sirf Hindi mein baat kar.' },
-      { role: 'system', content: 'ONLY MISSION: Get a payment date. Keep it short.' }
-    ];
+    session.messages = [{ 
+      role: 'system', 
+      content: 'Tu ek professional Hindi collection agent hai. Sirf Hindi mein baat kar. ONLY MISSION: Get a payment date. Keep it short.' 
+    }];
   }
 }
 
