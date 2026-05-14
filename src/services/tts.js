@@ -32,6 +32,7 @@ async function generateTTS(text) {
           encoding: 'pcm_mulaw',
           sample_rate: 8000
         },
+        loudness: 1.0, // Reduced from 1.5 to fix distortion/cracking
         language: 'hi'
       })
     });
