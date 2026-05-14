@@ -9,7 +9,7 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
  * Limits peaks to -6dB to strictly prevent any distortion/cracking.
  */
 async function generateTTS(text) {
-  // Deployment Trigger: Updated to Riya Voice for clarity
+  // Deployment Trigger: Updated Riya Voice + Normal Push Test
   try {
     console.log('[Cartesia TTS] Generating High-Quality PCM...');
 
