@@ -8,7 +8,7 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
  * Generates natural Indian speech using Sarvam AI (Bulbul model).
  * Provides highly realistic Hindi/Hinglish voices for the Indian context.
  */
-async function generateTTS(text, speaker = 'shubh') {
+async function generateTTS(text, speaker = 'hitesh') {
   try {
     if (!process.env.SARVAM_API_KEY) {
       console.error('[Sarvam TTS] SARVAM_API_KEY is missing');
