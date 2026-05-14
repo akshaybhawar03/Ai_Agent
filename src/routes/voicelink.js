@@ -172,9 +172,9 @@ async function sendAudio(session, text) {
       stream_sid: session.streamSid
     }));
     
-    // Step 2: Send audio in chunks of 3200 bytes (approx 400ms each)
-    // This helps in smoother streaming and reduces buffering issues
-    const chunkSize = 3200;
+    // Step 2: Send audio in industry-standard chunks of 160 bytes (20ms each)
+    // Small chunks prevent jitter and 'cracking' on telephony networks
+    const chunkSize = 160; 
     for (let i = 0; i < audioBuffer.length; i += chunkSize) {
       const chunk = audioBuffer.slice(i, i + chunkSize);
       session.ws.send(JSON.stringify({
