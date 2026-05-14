@@ -20,14 +20,14 @@ async function generateTTS(text) {
       body: JSON.stringify({
         inputs: [text],
         target_language_code: 'hi-IN',
-        speaker: 'arya', // High quality female neural voice
+        speaker: 'hitesh', // Back to Hitesh for better telephony clarity
         model: 'bulbul:v2',
         pitch: 0,
         pace: 1.0,
-        loudness: 1.0,
+        loudness: 2.0, // Increased loudness for better audibility
         speech_sample_rate: 8000,
-        enable_preprocessing: true,
-        audio_format: 'pcm' // This is LINEAR16 @ 8kHz
+        enable_preprocessing: false, // Disabled to prevent muffled sound
+        audio_format: 'pcm' 
       })
     });
 
