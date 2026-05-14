@@ -103,6 +103,16 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`CollectAI Backend running on port ${PORT}`);
   console.log(`[Webhook URL] ${process.env.WEBHOOK_BASE_URL}`);
+  
+  // Check for ffmpeg
+  const { execSync } = require('child_process');
+  try {
+    execSync('ffmpeg -version');
+    console.log('[ffmpeg] Available ✅');
+  } catch (err) {
+    console.warn('[ffmpeg] NOT available ❌ - Please install ffmpeg for TTS to work');
+  }
+
   initScheduler();
 });
 

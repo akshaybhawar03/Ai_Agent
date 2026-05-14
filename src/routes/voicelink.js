@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const WebSocket = require('ws');
-const { alaw } = require('alawmulaw');
 const { generatePrompt } = require('../utils/promptGenerator');
 const { detectOutcome } = require('../utils/outcomeDetector');
 const { createClient } = require('@deepgram/sdk');
@@ -53,22 +52,51 @@ function setupVoiceLinkWebSocket(wss) {
       const deepgramLive = deepgram.listen.live({
         model: 'nova-2',
         language: 'hi',
-        encoding: 'mulaw', // STT still uses mulaw usually, but if silent we'll check alaw
+        encoding: 'mulaw',
         sample_rate: 8000,
         interim_results: false,
         punctuate: true
       });
 
       deepgramLive.on('open', () => console.log('[VoiceLink] Deepgram STT Ready'));
-      deepgramLive.on('Results', async (data) => {
+      
+      deepgramLive.addListener('Results', async (data) => {
         const transcript = data.channel?.alternatives?.[0]?.transcript;
-        if (!transcript || transcript.trim() === '') return;
-
-        console.log(`[VoiceLink STT ${sessionId}]`, transcript);
+        if (!transcript?.trim()) return;
+        
+        console.log('[VoiceLink STT]', session.id, transcript);
         session.transcript.push({ role: 'customer', text: transcript });
 
-        const aiResponse = await getAIResponse(session, transcript);
-        if (aiResponse) await sendAudio(session, aiResponse);
+        try {
+          if (!session.messages.length) {
+            await loadSessionData(session, {}, customerId);
+          }
+          
+          session.messages.push({ role: 'user', content: transcript });
+          
+          const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: session.messages,
+            max_tokens: 100,
+            temperature: 0.7
+          });
+
+          const aiText = response.choices[0].message.content;
+          session.messages.push({ role: 'assistant', content: aiText });
+          session.transcript.push({ role: 'agent', text: aiText });
+          
+          console.log('[VoiceLink AI Response]', aiText);
+          
+          // Send audio back
+          await sendAudio(session, aiText);
+          
+          // End call on goodbye
+          if (aiText.toLowerCase().includes('namaste') && session.messages.length > 6) {
+            setTimeout(() => session.ws?.close(), 3000);
+          }
+        } catch (err) {
+          console.error('[VoiceLink AI Error]', err.message);
+        }
       });
 
       session.deepgramLive = deepgramLive;
@@ -95,7 +123,6 @@ function setupVoiceLinkWebSocket(wss) {
             session.isGreetingSent = true;
           }
         } else if (message.event === 'media') {
-          // Trigger greeting if we missed it but have a SID now
           if (!session.isGreetingSent && session.streamSid) {
             await loadSessionData(session, {}, customerId);
             const greeting = await generateGreeting(session);
@@ -104,16 +131,13 @@ function setupVoiceLinkWebSocket(wss) {
           }
 
           if (session.deepgramLive && session.deepgramLive.getReadyState() === 1) {
-            // VoiceLink sends alaw, convert or send as is? 
-            // Deepgram nova-2 hi supports mulaw. If it's alaw, we might need conversion.
-            // For now, let's assume STT works (as it did in logs).
             session.deepgramLive.send(Buffer.from(message.media.payload, 'base64'));
           }
         } else if (message.event === 'stop') {
           await handleCallEnd(session);
         }
       } catch (e) {
-        // Binary audio
+        // Binary audio - shouldn't happen with JSON format
       }
     });
 
@@ -126,18 +150,6 @@ function setupVoiceLinkWebSocket(wss) {
   });
 }
 
-/**
- * Converts a buffer (presumably PCM) to ALAW.
- * Note: edge-tts gives MP3. This is a naive conversion for now.
- * For production, use ffmpeg to get 8k mono PCM first.
- */
-function encodeToALaw(pcmBuffer) {
-  // Edge-TTS provides MP3. We ideally need PCM 8000Hz.
-  // This is a placeholder for proper conversion.
-  // For now, we try sending as is or basic conversion if possible.
-  return alaw.encode(pcmBuffer);
-}
-
 async function sendAudio(session, text) {
   try {
     if (!session.streamSid) {
@@ -145,27 +157,21 @@ async function sendAudio(session, text) {
       return;
     }
 
-    const gender = session.agentData?.gender === 'male' ? 'male' : 'female';
     console.log('[TTS] Generating audio for:', text.substring(0, 50));
-    const audioBuffer = await generateTTS(text, gender);
+    const audioBuffer = await generateTTS(text);
     console.log('[TTS] Audio result:', audioBuffer ? audioBuffer.length + ' bytes' : 'NULL');
     
-    if (audioBuffer && session.ws.readyState === WebSocket.OPEN) {
-      // VoiceLink expects ALAW in the media payload
-      // We will try to send the MP3 buffer first (some providers auto-detect)
-      // If it fails, we'll need a full PCM conversion step.
-      const message = {
-        event: 'media',
-        streamSid: session.streamSid,
-        media: {
-          payload: audioBuffer.toString('base64')
-        }
-      };
-      session.ws.send(JSON.stringify(message));
-      console.log(`[VoiceLink Sent ${session.id}] Audio payload size: ${audioBuffer.length}`);
-    }
+    if (!audioBuffer || session.ws.readyState !== WebSocket.OPEN) return;
+    
+    const payload = audioBuffer.toString('base64');
+    session.ws.send(JSON.stringify({
+      event: 'media',
+      stream_sid: session.streamSid,
+      media: { payload }
+    }));
+    console.log('[VoiceLink Sent]', session.id, 'Audio payload size:', audioBuffer.length);
   } catch (err) {
-    console.error('[VoiceLink Send Audio Error]', err);
+    console.error('[VoiceLink Send Audio Error]', err.message);
   }
 }
 
@@ -195,21 +201,6 @@ async function generateGreeting(session) {
     return 'Namaste! Main aapka AI assistant bol raha hoon.';
   }
   return `Namaste! Main ${session.agentData.agent_name} bol ra${session.agentData.gender === 'male' ? 'ha' : 'hi'} hoon, ${session.businessData?.business_name || 'CollectAI'} se. Kya main ${session.customerData?.customer_name} ji se baat kar sakta hoon?`;
-}
-
-async function getAIResponse(session, userText) {
-  try {
-    if (!session.messages.length) return null;
-    session.messages.push({ role: 'user', content: userText });
-    const completion = await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: session.messages, max_tokens: 150 });
-    const aiText = completion.choices[0].message.content;
-    session.messages.push({ role: 'assistant', content: aiText });
-    session.transcript.push({ role: 'agent', text: aiText });
-    return aiText;
-  } catch (err) {
-    console.error('[VoiceLink AI Error]', err.message);
-    return 'Maaf kijiye, kuch technical error hai.';
-  }
 }
 
 async function handleCallEnd(session) {
