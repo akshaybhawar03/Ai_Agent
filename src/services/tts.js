@@ -21,7 +21,7 @@ async function generateTTS(text) {
         inputs: [text],
         target_language_code: 'hi-IN',
         speaker: 'shubh',
-        model: 'bulbul:v1',
+        model: 'bulbul:v2',
         pitch: 0,
         pace: 1.0,
         loudness: 1.5,
