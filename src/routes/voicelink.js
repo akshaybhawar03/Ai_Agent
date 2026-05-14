@@ -9,14 +9,24 @@ const { supabaseAdmin: supabase } = require('../services/supabase');
 const { triggerVoiceLinkCall } = require('../services/voicelink');
 const { generateTTS } = require('../services/tts');
 
-// Initialize clients lazily
+// Initialize clients
 let deepgram = null;
+let groq = null;
 let openai = null;
 
 function initClients() {
   if (!openai && process.env.OPENAI_API_KEY) {
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
+  
+  // Use Groq as primary for AI if available
+  if (!groq && process.env.GROQ_API_KEY) {
+    groq = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: 'https://api.groq.com/openai/v1'
+    });
+  }
+
   if (!deepgram && process.env.DEEPGRAM_API_KEY) {
     deepgram = createClient(process.env.DEEPGRAM_API_KEY);
   }
@@ -74,11 +84,14 @@ function setupVoiceLinkWebSocket(wss) {
           
           session.messages.push({ role: 'user', content: transcript });
           
-          const response = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
+          // Use Groq primarily, fallback to OpenAI
+          const aiClient = groq || openai;
+          if (!aiClient) throw new Error('No AI client available');
+
+          const response = await aiClient.chat.completions.create({
+            model: groq ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini',
             messages: session.messages,
-            max_tokens: 100,
-            temperature: 0.7
+            max_tokens: 100
           });
 
           const aiText = response.choices[0].message.content;
@@ -86,14 +99,7 @@ function setupVoiceLinkWebSocket(wss) {
           session.transcript.push({ role: 'agent', text: aiText });
           
           console.log('[VoiceLink AI Response]', aiText);
-          
-          // Send audio back
           await sendAudio(session, aiText);
-          
-          // End call on goodbye
-          if (aiText.toLowerCase().includes('namaste') && session.messages.length > 6) {
-            setTimeout(() => session.ws?.close(), 3000);
-          }
         } catch (err) {
           console.error('[VoiceLink AI Error]', err.message);
         }
@@ -107,8 +113,6 @@ function setupVoiceLinkWebSocket(wss) {
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
-        
-        // Capture streamSid (Support both streamSid and stream_sid)
         const currentSid = message.streamSid || message.stream_sid || (message.start && message.start.stream_sid);
         if (currentSid && !session.streamSid) {
           session.streamSid = currentSid;
@@ -136,9 +140,7 @@ function setupVoiceLinkWebSocket(wss) {
         } else if (message.event === 'stop') {
           await handleCallEnd(session);
         }
-      } catch (e) {
-        // Binary audio - shouldn't happen with JSON format
-      }
+      } catch (e) {}
     });
 
     ws.on('close', async () => {
@@ -152,22 +154,17 @@ function setupVoiceLinkWebSocket(wss) {
 
 async function sendAudio(session, text) {
   try {
-    if (!session.streamSid) {
-      console.warn('[VoiceLink] Skipping send: No streamSid');
-      return;
-    }
-
+    if (!session.streamSid) return;
     console.log('[TTS] Generating audio for:', text.substring(0, 50));
     const audioBuffer = await generateTTS(text);
     console.log('[TTS] Audio result:', audioBuffer ? audioBuffer.length + ' bytes' : 'NULL');
     
     if (!audioBuffer || session.ws.readyState !== WebSocket.OPEN) return;
     
-    const payload = audioBuffer.toString('base64');
     session.ws.send(JSON.stringify({
       event: 'media',
       stream_sid: session.streamSid,
-      media: { payload }
+      media: { payload: audioBuffer.toString('base64') }
     }));
     console.log('[VoiceLink Sent]', session.id, 'Audio payload size:', audioBuffer.length);
   } catch (err) {
@@ -197,9 +194,7 @@ async function loadSessionData(session, startData, customerId) {
 }
 
 async function generateGreeting(session) {
-  if (!session.agentData || !session.customerData) {
-    return 'Namaste! Main aapka AI assistant bol raha hoon.';
-  }
+  if (!session.agentData || !session.customerData) return 'Namaste! Main aapka AI assistant bol raha hoon.';
   return `Namaste! Main ${session.agentData.agent_name} bol ra${session.agentData.gender === 'male' ? 'ha' : 'hi'} hoon, ${session.businessData?.business_name || 'CollectAI'} se. Kya main ${session.customerData?.customer_name} ji se baat kar sakta hoon?`;
 }
 
@@ -220,15 +215,10 @@ async function handleCallEnd(session) {
       });
       await supabase.from('customers').update({ status: outcome.outcome, last_call_date: new Date() }).eq('id', session.customerData.id);
     }
-  } catch (err) {
-    console.error('[Call End Error]', err);
-  }
+  } catch (err) {}
 }
 
-router.post('/webhook', (req, res) => {
-  console.log('[VoiceLink Webhook]', JSON.stringify(req.body, null, 2));
-  res.json({ status: 'ok' });
-});
+router.post('/webhook', (req, res) => res.json({ status: 'ok' }));
 
 router.post('/call', async (req, res) => {
   try {

@@ -5,15 +5,11 @@ const path = require('path');
 const os = require('os');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 
-/**
- * Generates high-quality speech and converts it to telephony-compatible mulaw 8kHz.
- * Uses @ffmpeg-installer/ffmpeg for portability.
- */
 async function generateTTS(text) {
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(
-      'hi-IN-MadhurNeural',
+      'hi-IN-SwaraNeural', // Swara is generally more stable
       OUTPUT_FORMAT.AUDIO_16KHZ_32KBITRATE_MONO_MP3
     );
 
@@ -28,30 +24,29 @@ async function generateTTS(text) {
     
     const mp3Buffer = Buffer.concat(mp3Chunks);
     
-    // Temporary file paths
     const requestId = Date.now();
     const tmpMp3 = path.join(os.tmpdir(), `tts_${requestId}.mp3`);
     const tmpPcm = path.join(os.tmpdir(), `tts_${requestId}.raw`);
     
     fs.writeFileSync(tmpMp3, mp3Buffer);
     
-    // Convert MP3 to PCMU (mulaw) 8khz mono using portable ffmpeg
+    // Improved ffmpeg command with full error logging
     try {
-      execSync(`"${ffmpeg.path}" -i ${tmpMp3} -ar 8000 -ac 1 -f mulaw ${tmpPcm} -y 2>/dev/null`);
+      // Using -acodec pcm_mulaw specifically
+      execSync(`"${ffmpeg.path}" -i ${tmpMp3} -acodec pcm_mulaw -ar 8000 -ac 1 -f mulaw ${tmpPcm} -y`);
     } catch (e) {
-      console.error('[TTS] ffmpeg conversion failed:', e.message);
+      console.error('[TTS] ffmpeg error details:', e.stderr?.toString() || e.message);
       throw e;
     }
     
     const pcmBuffer = fs.readFileSync(tmpPcm);
     
-    // Cleanup
     try {
       fs.unlinkSync(tmpMp3);
       fs.unlinkSync(tmpPcm);
     } catch (e) {}
     
-    console.log('[TTS] Converted to mulaw 8khz, size:', pcmBuffer.length, 'bytes');
+    console.log('[TTS] Success! Mulaw size:', pcmBuffer.length);
     return pcmBuffer;
     
   } catch (err) {
