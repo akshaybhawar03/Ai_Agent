@@ -1,33 +1,30 @@
-const edgeTTS = require('edge-tts');
-const { Readable } = require('stream');
+const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
 
 /**
  * Generates high-quality speech from text using Microsoft Edge's free TTS service.
- * No API key required.
  * @param {string} text - The text to convert to speech.
  * @param {string} gender - 'male' or 'female' to select the voice.
  * @returns {Promise<Buffer|null>} - Audio buffer in MP3 format.
  */
 async function generateTTS(text, gender = 'female') {
   try {
-    const tts = new edgeTTS.EdgeTTS();
+    const tts = new MsEdgeTTS();
     
-    // Select the best natural-sounding Hindi neural voice
+    // Select natural sounding Hindi neural voices
     const voice = gender === 'male' ? 'hi-IN-MadhurNeural' : 'hi-IN-SwaraNeural';
     
-    console.log(`[TTS] Generating speech with voice: ${voice}`);
-    
+    await tts.setMetadata(
+      voice,
+      OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
+    );
+
     const chunks = [];
-    const stream = await tts.toStream(text, { voice });
     
     return new Promise((resolve, reject) => {
-      stream.on('data', chunk => chunks.push(chunk));
-      stream.on('end', () => {
-        const fullBuffer = Buffer.concat(chunks);
-        console.log(`[TTS] Generation complete. Buffer size: ${fullBuffer.length} bytes`);
-        resolve(fullBuffer);
-      });
-      stream.on('error', (err) => {
+      const readable = tts.toStream(text);
+      readable.on('data', chunk => chunks.push(chunk));
+      readable.on('end', () => resolve(Buffer.concat(chunks)));
+      readable.on('error', (err) => {
         console.error('[TTS Stream Error]', err);
         reject(err);
       });
