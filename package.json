@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@deepgram/sdk": "^3.13.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/text-to-speech": "^6.4.1",
     "@supabase/supabase-js": "^2.45.0",
     "alawmulaw": "^6.0.0",
@@ -19,6 +20,7 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "microsoft-cognitiveservices-speech-sdk": "^1.50.0",
+    "msedge-tts": "^2.0.5",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
     "node-fetch": "^2.7.0",
