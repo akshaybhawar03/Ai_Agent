@@ -47,6 +47,7 @@ function setupVoiceLinkWebSocket(wss) {
     const session = {
       id: sessionId,
       ws,
+      wsUrl: req.url, // Bug 3 Fix: Store URL for parameter extraction
       streamSid: null,
       transcript: [],
       messages: [],
@@ -78,6 +79,7 @@ function setupVoiceLinkWebSocket(wss) {
         session.transcript.push({ role: 'customer', text: transcript });
 
         try {
+          // Ensure session data is loaded if somehow missed during START
           if (!session.messages.length) {
             await loadSessionData(session, {}, customerId);
           }
@@ -113,27 +115,31 @@ function setupVoiceLinkWebSocket(wss) {
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
+        
+        // Bug 1 & 2 Fix: Stream SID and Customer ID Capture
         const currentSid = message.streamSid || message.stream_sid || (message.start && message.start.stream_sid);
+        
         if (currentSid && !session.streamSid) {
           session.streamSid = currentSid;
           console.log(`[VoiceLink SID ${sessionId}] Captured: ${session.streamSid}`);
+          
+          // Bug 2 Fix: Get customer_id from custom_parameters or URL
+          const customParams = (message.start && message.start.custom_parameters) || {};
+          const extractedCustomerId = customParams.customer_id || 
+                             new URLSearchParams((session.wsUrl || '').split('?')[1]).get('customer_id');
+          
+          console.log('[VoiceLink] Extracted Customer ID:', extractedCustomerId);
+
+          // ONLY trigger greeting once session context is fully established
+          if (!session.isGreetingSent) {
+            session.isGreetingSent = true;
+            await loadSessionData(session, message.start || {}, extractedCustomerId);
+            const greeting = await generateGreeting(session);
+            await sendAudio(session, greeting);
+          }
         }
 
-        if (message.event === 'start') {
-          await loadSessionData(session, message.start, customerId);
-          if (!session.isGreetingSent && session.streamSid) {
-            const greeting = await generateGreeting(session);
-            await sendAudio(session, greeting);
-            session.isGreetingSent = true;
-          }
-        } else if (message.event === 'media') {
-          if (!session.isGreetingSent && session.streamSid) {
-            await loadSessionData(session, {}, customerId);
-            const greeting = await generateGreeting(session);
-            await sendAudio(session, greeting);
-            session.isGreetingSent = true;
-          }
-
+        if (message.event === 'media' && session.streamSid) {
           if (session.deepgramLive && session.deepgramLive.getReadyState() === 1) {
             session.deepgramLive.send(Buffer.from(message.media.payload, 'base64'));
           }
