@@ -1,6 +1,6 @@
 /**
- * Generates natural Indian speech using Sarvam AI and converts to mulaw manually.
- * This approach bypasses ffmpeg for better audio quality and lower latency.
+ * Generates high-fidelity Indian speech using Sarvam AI's raw PCM output.
+ * Manual PCM-to-Mulaw conversion for zero-distortion telephony audio.
  */
 async function generateTTS(text) {
   try {
@@ -18,14 +18,14 @@ async function generateTTS(text) {
       body: JSON.stringify({
         inputs: [text],
         target_language_code: 'hi-IN',
-        speaker: 'hitesh', // Compatibility with v2
-        model: 'bulbul:v2', // v2 is required now
+        speaker: 'arya', // Switching to Arya (Female) for better natural tone
+        model: 'bulbul:v2',
         pitch: 0,
         pace: 1.0,
-        loudness: 1.2,
+        loudness: 1.0, // Reduced from 1.2 to prevent clipping/distortion
         speech_sample_rate: 8000,
         enable_preprocessing: true,
-        audio_format: 'wav'
+        audio_format: 'pcm' // Requested RAW PCM to avoid WAV header issues
       })
     });
 
@@ -37,17 +37,16 @@ async function generateTTS(text) {
 
     const data = await response.json();
     const base64Audio = data.audios[0];
-    const wavBuffer = Buffer.from(base64Audio, 'base64');
     
-    console.log('[Sarvam TTS] WAV received, size:', wavBuffer.length, 'bytes');
+    // Sarvam returns base64 raw PCM when audio_format is 'pcm'
+    const pcmBuffer = Buffer.from(base64Audio, 'base64');
+    
+    console.log('[Sarvam TTS] Raw PCM received, size:', pcmBuffer.length, 'bytes');
 
-    // Skip WAV header (standard 44 bytes) to get raw 16-bit PCM data
-    const pcmData = wavBuffer.slice(44);
+    // Manually convert raw PCM 16-bit LE to 8-bit Mulaw
+    const mulawBuffer = pcmToMulaw(pcmBuffer);
     
-    // Manually convert PCM 16-bit LE to 8-bit Mulaw
-    const mulawBuffer = pcmToMulaw(pcmData);
-    
-    console.log('[Sarvam TTS] Manual Mulaw conversion success, size:', mulawBuffer.length, 'bytes');
+    console.log('[Sarvam TTS] Mulaw conversion success, size:', mulawBuffer.length, 'bytes');
     return mulawBuffer;
 
   } catch (err) {
@@ -58,42 +57,27 @@ async function generateTTS(text) {
 
 /**
  * Converts 16-bit Linear PCM to 8-bit u-law (mulaw).
- * Standard G.711 implementation in pure JavaScript.
  */
 function pcmToMulaw(pcmBuffer) {
-  const MULAW_MAX = 0x1FFF;
   const MULAW_BIAS = 33;
   const mulawBuffer = Buffer.alloc(pcmBuffer.length / 2);
   
   for (let i = 0; i < mulawBuffer.length; i++) {
-    // Read 16-bit signed little-endian sample
     let sample = pcmBuffer.readInt16LE(i * 2);
     
-    // Clamp sample to 16-bit range
-    sample = Math.max(-32768, Math.min(32767, sample));
+    let sign = (sample >> 8) & 0x80;
+    if (sign !== 0) sample = -sample;
+    if (sample > 32635) sample = 32635;
     
-    let sign = 0;
-    if (sample < 0) {
-      sign = 0x80;
-      sample = -sample;
-    }
-    
-    // Convert to 13-bit range
-    sample >>= 2;
     sample += MULAW_BIAS;
-    if (sample > MULAW_MAX) sample = MULAW_MAX;
     
-    let exp = 7;
-    let expMask = 0x1000;
-    while (exp > 0 && !(sample & expMask)) {
-      exp--;
-      expMask >>= 1;
-    }
+    let exponent = 7;
+    for (let expMask = 0x4000; (sample & expMask) === 0 && exponent > 0; exponent--, expMask >>= 1);
     
-    const mantissa = (sample >> (exp + 3)) & 0x0F;
-    const mulaw = ~(sign | (exp << 4) | mantissa) & 0xFF;
+    let mantissa = (sample >> (exponent + 3)) & 0x0F;
+    let res = ~(sign | (exponent << 4) | mantissa) & 0xFF;
     
-    mulawBuffer[i] = mulaw;
+    mulawBuffer[i] = res;
   }
   
   return mulawBuffer;
