@@ -21,8 +21,8 @@ async function generateTTS(text) {
         target_language_code: 'hi-IN',
         speaker: 'shubh',
         model: 'bulbul:v3',
-        pace: 1.0,
-        speech_sample_rate: 22050,
+        pace: 1.1,
+        speech_sample_rate: 16000,
         enable_preprocessing: true,
         audio_format: 'wav'
       })
