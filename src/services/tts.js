@@ -9,19 +9,18 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
  */
 async function generateTTS(text) {
   try {
-    console.log('[Sarvam TTS] Generating WAV...');
-    
+    console.log('[Sarvam TTS] Generating WAV with model: bulbul:v2');
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
       method: 'POST',
       headers: {
-        'api-subscription-key': process.env.SARVAM_API_KEY || '68c70428-2b81-42e7-8178-01316b251874',
+        'api-subscription-key': process.env.SARVAM_API_KEY,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         inputs: [text],
         target_language_code: 'hi-IN',
         speaker: 'shubh',
-        model: 'bulbul:v2',
+        model: 'bulbul:v3',
         pitch: 0,
         pace: 1.0,
         loudness: 1.5,
