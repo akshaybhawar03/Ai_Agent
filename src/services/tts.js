@@ -24,7 +24,7 @@ async function generateTTS(text) {
         transcript: text,
         voice: {
           mode: 'id',
-          id: 'be79f378-47fe-4f9c-b92b-f02cefa62ccf' // Sunil
+          id: 'faf0731e-dfb9-4cfc-8119-259a79b27e12' // Riya - College Roommate
         },
         output_format: {
           container: 'raw',
