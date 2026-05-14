@@ -166,9 +166,17 @@ async function sendAudio(session, text) {
     
     if (!audioBuffer || session.ws.readyState !== WebSocket.OPEN) return;
     
-    // Try sending as raw binary instead of JSON
-    session.ws.send(audioBuffer, { binary: true });
-    console.log('[VoiceLink Sent] Raw binary payload, size:', audioBuffer.length);
+    // VoiceLink requires this exact JSON format with base64 payload
+    const payload = {
+      event: 'media',
+      stream_sid: session.streamSid,
+      media: {
+        payload: audioBuffer.toString('base64')
+      }
+    };
+    
+    session.ws.send(JSON.stringify(payload));
+    console.log('[VoiceLink Sent] JSON media event, size:', audioBuffer.length);
   } catch (err) {
     console.error('[VoiceLink Send Audio Error]', err.message);
   }

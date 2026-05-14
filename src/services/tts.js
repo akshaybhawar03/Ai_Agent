@@ -1,6 +1,12 @@
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const ffmpeg = require('@ffmpeg-installer/ffmpeg');
+
 /**
- * Generates raw WAV audio from Sarvam AI.
- * Returning the raw buffer directly to test different VoiceLink formats.
+ * Generates speech via Sarvam AI at 22050Hz and resamples to 8000Hz mulaw using FFmpeg.
+ * This is the standard pipeline required by VoiceLink for clear audio.
  */
 async function generateTTS(text) {
   try {
@@ -9,6 +15,7 @@ async function generateTTS(text) {
       return null;
     }
 
+    // Step 1: Request high-quality 22050Hz WAV from Sarvam
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
       method: 'POST',
       headers: {
@@ -23,7 +30,7 @@ async function generateTTS(text) {
         pitch: 0,
         pace: 1.0,
         loudness: 1.5,
-        speech_sample_rate: 8000,
+        speech_sample_rate: 22050, 
         enable_preprocessing: true,
         audio_format: 'wav'
       })
@@ -40,10 +47,41 @@ async function generateTTS(text) {
       throw new Error('No audio returned from Sarvam AI');
     }
 
-    // Return the base64 decoded WAV buffer directly
     const wavBuffer = Buffer.from(data.audios[0], 'base64');
-    console.log('[Sarvam TTS] WAV received, size:', wavBuffer.length, 'bytes');
-    return wavBuffer;
+
+    // Step 2: Temporary files for conversion
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const tmpWav = path.join(os.tmpdir(), `tts_${id}.wav`);
+    const tmpMulaw = path.join(os.tmpdir(), `tts_${id}.raw`);
+
+    fs.writeFileSync(tmpWav, wavBuffer);
+
+    // Step 3: Resample to 8000Hz mulaw using FFmpeg
+    const result = spawnSync(ffmpeg.path, [
+      '-i', tmpWav,
+      '-ar', '8000',
+      '-ac', '1',
+      '-acodec', 'pcm_mulaw',
+      '-f', 'mulaw',
+      tmpMulaw,
+      '-y'
+    ], { stdio: 'pipe' });
+
+    if (result.status !== 0) {
+      console.error('[ffmpeg Error]', result.stderr?.toString().slice(-300));
+      return null;
+    }
+
+    const mulawBuffer = fs.readFileSync(tmpMulaw);
+    console.log('[TTS] Mulaw ready:', mulawBuffer.length, 'bytes');
+
+    // Step 4: Cleanup
+    try {
+      if (fs.existsSync(tmpWav)) fs.unlinkSync(tmpWav);
+      if (fs.existsSync(tmpMulaw)) fs.unlinkSync(tmpMulaw);
+    } catch (e) {}
+
+    return mulawBuffer;
 
   } catch (err) {
     console.error('[TTS Error Global]', err.message);
