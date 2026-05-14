@@ -146,7 +146,9 @@ async function sendAudio(session, text) {
     }
 
     const gender = session.agentData?.gender === 'male' ? 'male' : 'female';
+    console.log('[TTS] Generating audio for:', text.substring(0, 50));
     const audioBuffer = await generateTTS(text, gender);
+    console.log('[TTS] Audio result:', audioBuffer ? audioBuffer.length + ' bytes' : 'NULL');
     
     if (audioBuffer && session.ws.readyState === WebSocket.OPEN) {
       // VoiceLink expects ALAW in the media payload

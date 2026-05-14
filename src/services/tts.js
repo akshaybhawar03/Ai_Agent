@@ -18,13 +18,14 @@ async function generateTTS(text, gender = 'female') {
       OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
     );
 
-    const chunks = [];
+    // Use destructuring to get the actual audioStream
+    const { audioStream } = await tts.toStream(text);
     
+    const chunks = [];
     return new Promise((resolve, reject) => {
-      const readable = tts.toStream(text);
-      readable.on('data', chunk => chunks.push(chunk));
-      readable.on('end', () => resolve(Buffer.concat(chunks)));
-      readable.on('error', (err) => {
+      audioStream.on('data', chunk => chunks.push(chunk));
+      audioStream.on('end', () => resolve(Buffer.concat(chunks)));
+      audioStream.on('error', (err) => {
         console.error('[TTS Stream Error]', err);
         reject(err);
       });
