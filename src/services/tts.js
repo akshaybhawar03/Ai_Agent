@@ -1,4 +1,4 @@
-const { utaw } = require('alawmulaw');
+const alawmulaw = require('alawmulaw');
 
 /**
  * Generates high-fidelity Indian speech using Sarvam AI's raw PCM output.
@@ -48,7 +48,7 @@ async function generateTTS(text) {
     // Use professional 'alawmulaw' package for conversion
     // LINEAR16 (16-bit) to PCMU (8-bit mulaw)
     const pcmSamples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
-    const mulawSamples = utaw.encode(pcmSamples);
+    const mulawSamples = alawmulaw.mulaw.encode(pcmSamples);
     const mulawBuffer = Buffer.from(mulawSamples);
     
     console.log('[Sarvam TTS] Mulaw success (via alawmulaw)! size:', mulawBuffer.length, 'bytes');
