@@ -1,56 +1,74 @@
-const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
+const gtts = require('node-gtts');
 const { execSync } = require('child_process');
 const fs = require('fs');
-const path = require('path');
 const os = require('os');
+const path = require('path');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 
 /**
- * Generates high-quality speech and converts it to telephony-compatible mulaw 8kHz.
- * Uses toFile() for reliability and @ffmpeg-installer/ffmpeg for conversion.
+ * Generates speech using Google Translate TTS (free) and converts to telephony mulaw.
  */
-async function generateTTS(text, voice = 'hi-IN-MadhurNeural') {
-  try {
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    
-    // Create temporary paths
-    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const tmpMp3 = path.join(os.tmpdir(), `tts_${requestId}.mp3`);
-    const tmpRaw = path.join(os.tmpdir(), `tts_${requestId}.raw`);
-    
-    // Save to file using toFile() method - MUCH more reliable than streams
-    const { audioFilePath } = await tts.toFile(tmpMp3, text);
-    
-    if (!fs.existsSync(audioFilePath) || fs.statSync(audioFilePath).size === 0) {
-      throw new Error('MP3 file was not created or is empty');
-    }
-
-    console.log('[TTS] MP3 saved to:', audioFilePath, 'size:', fs.statSync(audioFilePath).size, 'bytes');
-    
-    // Convert to mulaw using portable ffmpeg
+async function generateTTS(text) {
+  return new Promise((resolve) => {
     try {
-      execSync(`"${ffmpeg.path}" -i "${audioFilePath}" -acodec pcm_mulaw -ar 8000 -ac 1 -f mulaw "${tmpRaw}" -y`, {
-        stdio: 'pipe'
+      const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const tmpMp3 = path.join(os.tmpdir(), `tts_${requestId}.mp3`);
+      const tmpRaw = path.join(os.tmpdir(), `tts_${requestId}.raw`);
+      
+      // Google TTS Hindi instance
+      const ttsInstance = gtts('hi');
+      
+      console.log('[TTS] Generating via Google TTS...');
+      
+      ttsInstance.save(tmpMp3, text, (err) => {
+        if (err) {
+          console.error('[TTS] Google TTS Save Error:', err.message);
+          return resolve(null);
+        }
+        
+        try {
+          if (!fs.existsSync(tmpMp3)) {
+            console.error('[TTS] MP3 file not found after save');
+            return resolve(null);
+          }
+
+          const fileSize = fs.statSync(tmpMp3).size;
+          console.log('[TTS] MP3 saved, size:', fileSize, 'bytes');
+          
+          if (fileSize < 50) {
+            console.error('[TTS] MP3 too small, likely an error response');
+            return resolve(null);
+          }
+          
+          // Convert to mulaw 8khz for telephony
+          try {
+            execSync(
+              `"${ffmpeg.path}" -i "${tmpMp3}" -acodec pcm_mulaw -ar 8000 -ac 1 -f mulaw "${tmpRaw}" -y`,
+              { stdio: 'pipe' }
+            );
+          } catch (convErr) {
+            console.error('[TTS] FFmpeg conversion failed:', convErr.stderr?.toString() || convErr.message);
+            throw convErr;
+          }
+          
+          const mulawBuffer = fs.readFileSync(tmpRaw);
+          console.log('[TTS] Mulaw success! size:', mulawBuffer.length, 'bytes');
+          
+          // Cleanup
+          try { fs.unlinkSync(tmpMp3); } catch {}
+          try { fs.unlinkSync(tmpRaw); } catch {}
+          
+          resolve(mulawBuffer);
+        } catch (innerErr) {
+          console.error('[TTS] Error during processing:', innerErr.message);
+          resolve(null);
+        }
       });
-    } catch (e) {
-      console.error('[TTS] ffmpeg error details:', e.stderr?.toString() || e.message);
-      throw e;
+    } catch (err) {
+      console.error('[TTS Global Error]', err.message);
+      resolve(null);
     }
-    
-    const mulawBuffer = fs.readFileSync(tmpRaw);
-    
-    // Cleanup
-    try { fs.unlinkSync(audioFilePath); } catch {}
-    try { fs.unlinkSync(tmpRaw); } catch {}
-    
-    console.log('[TTS] Success! Mulaw buffer size:', mulawBuffer.length, 'bytes');
-    return mulawBuffer;
-    
-  } catch (err) {
-    console.error('[TTS Error]', err.message);
-    return null;
-  }
+  });
 }
 
 module.exports = { generateTTS };
