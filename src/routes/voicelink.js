@@ -163,16 +163,12 @@ async function sendAudio(session, text) {
     if (!session.streamSid) return;
     console.log('[TTS] Generating audio for:', text.substring(0, 50));
     const audioBuffer = await generateTTS(text);
-    console.log('[TTS] Audio result:', audioBuffer ? audioBuffer.length + ' bytes' : 'NULL');
     
     if (!audioBuffer || session.ws.readyState !== WebSocket.OPEN) return;
     
-    session.ws.send(JSON.stringify({
-      event: 'media',
-      stream_sid: session.streamSid,
-      media: { payload: audioBuffer.toString('base64') }
-    }));
-    console.log('[VoiceLink Sent]', session.id, 'Audio payload size:', audioBuffer.length);
+    // Try sending as raw binary instead of JSON
+    session.ws.send(audioBuffer, { binary: true });
+    console.log('[VoiceLink Sent] Raw binary payload, size:', audioBuffer.length);
   } catch (err) {
     console.error('[VoiceLink Send Audio Error]', err.message);
   }
