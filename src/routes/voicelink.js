@@ -1,20 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const WebSocket = require('ws');
-const sdk = require('microsoft-cognitiveservices-speech-sdk');
 const { generatePrompt } = require('../utils/promptGenerator');
 const { detectOutcome } = require('../utils/outcomeDetector');
 const { createClient } = require('@deepgram/sdk');
 const OpenAI = require('openai');
-const textToSpeech = require('@google-cloud/text-to-speech');
 const { supabaseAdmin: supabase } = require('../services/supabase');
 const { triggerVoiceLinkCall } = require('../services/voicelink');
+const { generateTTS } = require('../services/tts');
 
 // Initialize clients lazily to prevent crash if keys are missing
 let deepgram = null;
 let openai = null;
-let ttsClient = null;
-let azureSpeechConfig = null;
 
 function initClients() {
   if (!openai && process.env.OPENAI_API_KEY) {
@@ -23,28 +20,6 @@ function initClients() {
   
   if (!deepgram && process.env.DEEPGRAM_API_KEY) {
     deepgram = createClient(process.env.DEEPGRAM_API_KEY);
-  }
-  
-  if (!ttsClient && process.env.GOOGLE_TTS_API_KEY) {
-    try {
-      ttsClient = new textToSpeech.TextToSpeechClient({
-        apiKey: process.env.GOOGLE_TTS_API_KEY
-      });
-    } catch (e) {
-      console.error('[VoiceLink] Failed to init Google TTS:', e.message);
-    }
-  }
-
-  if (!azureSpeechConfig && process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION) {
-    try {
-      azureSpeechConfig = sdk.SpeechConfig.fromSubscription(
-        process.env.AZURE_SPEECH_KEY,
-        process.env.AZURE_SPEECH_REGION
-      );
-      azureSpeechConfig.speechSynthesisVoiceName = "hi-IN-SwaraNeural"; // Premium Hindi Female
-    } catch (e) {
-      console.error('[VoiceLink] Failed to init Azure TTS:', e.message);
-    }
   }
 }
 
@@ -56,8 +31,8 @@ function setupVoiceLinkWebSocket(wss) {
   wss.on('connection', async (ws, req) => {
     initClients();
     
-    if (!deepgram || !openai || !ttsClient) {
-      console.error('[VoiceLink WS] Missing API keys. Cannot process call.');
+    if (!deepgram || !openai) {
+      console.error('[VoiceLink WS] Missing core API keys (OpenAI/Deepgram). Cannot process call.');
       ws.send(JSON.stringify({ type: 'error', message: 'Server configuration missing' }));
       ws.close();
       return;
@@ -80,7 +55,7 @@ function setupVoiceLinkWebSocket(wss) {
     sessions.set(sessionId, session);
 
     try {
-      // Setup Deepgram live transcription
+      // Setup Deepgram live transcription (STT)
       const deepgramLive = deepgram.listen.live({
         model: 'nova-2',
         language: 'hi',
@@ -104,8 +79,9 @@ function setupVoiceLinkWebSocket(wss) {
         // Get AI response
         const aiResponse = await getAIResponse(session, transcript);
         if (aiResponse) {
-          // Convert to audio and send back
-          const audioBuffer = await textToSpeechConvert(aiResponse);
+          // Convert to audio using free edge-tts
+          const gender = session.agentData?.gender === 'male' ? 'male' : 'female';
+          const audioBuffer = await generateTTS(aiResponse, gender);
           if (audioBuffer && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'audio',
@@ -138,7 +114,8 @@ function setupVoiceLinkWebSocket(wss) {
           
           // Send greeting
           const greeting = await generateGreeting(session);
-          const audioBuffer = await textToSpeechConvert(greeting);
+          const gender = session.agentData?.gender === 'male' ? 'male' : 'female';
+          const audioBuffer = await generateTTS(greeting, gender);
           if (audioBuffer && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'audio',
@@ -174,18 +151,17 @@ function setupVoiceLinkWebSocket(wss) {
 
 async function loadSessionData(session, message) {
   try {
-    // Get customer from phone number
-    const phone = message.from || message.caller_id;
+    const phone = message.from || message.caller_id || message.customer_number;
     if (phone) {
+      const cleanPhone = phone.replace(/\D/g, '').slice(-10);
       const { data: customer } = await supabase
         .from('customers')
         .select('*')
-        .or(`phone.eq.${phone},phone.eq.${phone.replace('+91', '')}`)
+        .or(`phone.ilike.%${cleanPhone}%`)
         .single();
       session.customerData = customer;
     }
 
-    // Get agent config
     const { data: agent } = await supabase
       .from('agent_config')
       .select('*')
@@ -194,7 +170,6 @@ async function loadSessionData(session, message) {
       .single();
     session.agentData = agent;
 
-    // Get business profile
     const { data: business } = await supabase
       .from('business_profile')
       .select('*')
@@ -237,7 +212,7 @@ async function getAIResponse(session, userText) {
     session.messages.push({ role: 'assistant', content: aiText });
     session.transcript.push({ role: 'agent', text: aiText });
 
-    // Check if call should end
+    // Close call if user says thank you or goodbye
     if (aiText.toLowerCase().includes('namaste') && session.messages.length > 4) {
       setTimeout(() => session.ws?.close(), 3000);
     }
@@ -246,69 +221,6 @@ async function getAIResponse(session, userText) {
   } catch (err) {
     console.error('[VoiceLink] OpenAI Error:', err.message);
     return 'Maaf kijiye, kuch technical error hai.';
-  }
-}
-
-async function textToSpeechConvert(text) {
-  try {
-    // 1. Try Azure TTS first (Best Hindi quality)
-    if (azureSpeechConfig) {
-      console.log('[VoiceLink] Using Azure TTS');
-      const synthesizer = new sdk.SpeechSynthesizer(azureSpeechConfig, null);
-      return new Promise((resolve, reject) => {
-        synthesizer.speakTextAsync(
-          text,
-          (result) => {
-            if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-              resolve(Buffer.from(result.audioData));
-            } else {
-              reject(new Error(`Azure TTS Error: ${result.errorDetails}`));
-            }
-            synthesizer.close();
-          },
-          (err) => {
-            synthesizer.close();
-            reject(err);
-          }
-        );
-      });
-    }
-
-    // 2. Try Google TTS if key is present
-    if (ttsClient) {
-      const request = {
-        input: { text },
-        voice: {
-          languageCode: 'hi-IN',
-          name: 'hi-IN-Wavenet-C',
-          ssmlGender: 'MALE'
-        },
-        audioConfig: {
-          audioEncoding: 'MP3',
-          speakingRate: 1.1
-        }
-      };
-      const [response] = await ttsClient.synthesizeSpeech(request);
-      return response.audioContent;
-    } 
-    
-    // 3. Fallback to OpenAI TTS (since user already has this key)
-    if (openai) {
-      console.log('[VoiceLink] Using OpenAI TTS fallback');
-      const mp3 = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: "onyx", // Best for Hindi male
-        input: text,
-      });
-      const buffer = Buffer.from(await mp3.arrayBuffer());
-      return buffer;
-    }
-
-    return null;
-  } catch (err) {
-    console.error('[TTS Error]', err.message);
-    // Silent failover to next provider would be better here, but for now we log and return null
-    return null;
   }
 }
 
@@ -333,7 +245,6 @@ async function handleCallEnd(session) {
         called_at: new Date().toISOString()
       });
 
-      // Update customer status
       await supabase.from('customers').update({
         status: outcome.outcome,
         last_call_date: new Date()
@@ -344,43 +255,13 @@ async function handleCallEnd(session) {
   }
 }
 
-// Helper to ensure we have a valid token
-async function ensureAuthenticated() {
-  if (process.env.VOICELINK_API_KEY) return process.env.VOICELINK_API_KEY;
-
-  try {
-    if (!process.env.VOICELINK_USERNAME || !process.env.VOICELINK_PASSWORD) {
-      return null;
-    }
-    console.log('[VoiceLink] Authenticating via login...');
-    const response = await fetch('https://app.voicelink.co.in/api/v1/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: process.env.VOICELINK_USERNAME,
-        password: process.env.VOICELINK_PASSWORD
-      })
-    });
-
-    const data = await response.json();
-    if (data.token) {
-      console.log('[VoiceLink] Login successful');
-      return data.token;
-    }
-    throw new Error(data.message || 'Login failed');
-  } catch (err) {
-    console.error('[VoiceLink Auth Error]', err.message);
-    return null;
-  }
-}
-
 // Webhook endpoint for VoiceLink events
 router.post('/webhook', async (req, res) => {
   console.log('[VoiceLink Webhook]', req.body);
   res.json({ status: 'ok' });
 });
 
-// Outbound call trigger via VoiceLink API
+// Outbound call trigger via VoiceLink service
 router.post('/call', async (req, res) => {
   try {
     const { customerId } = req.body;
@@ -393,8 +274,7 @@ router.post('/call', async (req, res) => {
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
     console.log(`[VoiceLink] Initiating call to ${customer.phone}`);
-
-    const data = await triggerVoiceLinkCall(customer, {}); // Pass empty business for now
+    const data = await triggerVoiceLinkCall(customer, {});
     res.json({ success: true, call: data });
   } catch (err) {
     console.error('[VoiceLink Call Error]', err.message);

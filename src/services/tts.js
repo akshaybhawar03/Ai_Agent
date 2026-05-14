@@ -1,40 +1,41 @@
-const sdk = require('microsoft-cognitiveservices-speech-sdk');
+const edgeTTS = require('edge-tts');
+const { Readable } = require('stream');
 
 /**
- * Generate high-quality Hindi speech using Azure Cognitive Services
+ * Generates high-quality speech from text using Microsoft Edge's free TTS service.
+ * No API key required.
+ * @param {string} text - The text to convert to speech.
+ * @param {string} gender - 'male' or 'female' to select the voice.
+ * @returns {Promise<Buffer|null>} - Audio buffer in MP3 format.
  */
-async function generateTTS(text) {
-  return new Promise((resolve, reject) => {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(
-      process.env.AZURE_SPEECH_KEY,
-      process.env.AZURE_SPEECH_REGION || 'eastus'
-    );
+async function generateTTS(text, gender = 'female') {
+  try {
+    const tts = new edgeTTS.EdgeTTS();
     
-    // hi-IN-MadhurNeural is a very natural Hindi male voice
-    speechConfig.speechSynthesisVoiceName = "hi-IN-MadhurNeural";
+    // Select the best natural-sounding Hindi neural voice
+    const voice = gender === 'male' ? 'hi-IN-MadhurNeural' : 'hi-IN-SwaraNeural';
     
-    // Output as MP3 for Twilio compatibility
-    speechConfig.speechSynthesisOutputFormat = 
-      sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
+    console.log(`[TTS] Generating speech with voice: ${voice}`);
     
-    const synthesizer = new sdk.SpeechSynthesizer(speechConfig, null);
+    const chunks = [];
+    const stream = await tts.toStream(text, { voice });
     
-    synthesizer.speakTextAsync(
-      text,
-      result => {
-        if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-          resolve(Buffer.from(result.audioData));
-        } else {
-          reject(new Error(`Azure TTS Error: ${result.errorDetails}`));
-        }
-        synthesizer.close();
-      },
-      error => {
-        reject(error);
-        synthesizer.close();
-      }
-    );
-  });
+    return new Promise((resolve, reject) => {
+      stream.on('data', chunk => chunks.push(chunk));
+      stream.on('end', () => {
+        const fullBuffer = Buffer.concat(chunks);
+        console.log(`[TTS] Generation complete. Buffer size: ${fullBuffer.length} bytes`);
+        resolve(fullBuffer);
+      });
+      stream.on('error', (err) => {
+        console.error('[TTS Stream Error]', err);
+        reject(err);
+      });
+    });
+  } catch (err) {
+    console.error('[TTS Error]', err.message);
+    return null;
+  }
 }
 
 module.exports = { generateTTS };
