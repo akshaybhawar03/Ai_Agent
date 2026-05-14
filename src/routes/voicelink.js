@@ -182,14 +182,29 @@ async function loadSessionData(session, startData, customerId) {
     }
     const { data: agent } = await supabase.from('agent_config').select('*').eq('is_active', true).limit(1).single();
     const { data: business } = await supabase.from('business_profile').select('*').limit(1).single();
+    
     session.agentData = agent;
     session.businessData = business;
-    if (session.customerData && session.agentData && session.businessData) {
-      const systemPrompt = generatePrompt(session.agentData, session.customerData, session.businessData);
-      session.messages = [{ role: 'system', content: systemPrompt }];
-    }
+
+    // Set the system prompt - Use dynamic data if available, otherwise strict fallback
+    const systemPrompt = (session.customerData && session.agentData && session.businessData)
+      ? generatePrompt(session.agentData, session.customerData, session.businessData)
+      : `Tu ek professional Hindi collection agent hai. 
+         Sirf Hindi/Hinglish mein baat kar. 
+         Agar customer "Hello" bole toh pooch: 
+         "Namaste! Kya main aapse payment ke baare mein baat kar sakta hoon?"
+         Short and polite raho. Max 2 sentences per response.`;
+
+    session.messages = [{ role: 'system', content: systemPrompt }];
+    console.log(`[VoiceLink] System prompt set for customer: ${session.customerData?.customer_name || 'Unknown'}`);
+    
   } catch (err) {
     console.error('[VoiceLink Load Data Error]', err.message);
+    // Even on error, set a basic prompt so AI doesn't stay silent or speak English
+    session.messages = [{ 
+      role: 'system', 
+      content: 'Tu ek professional Hindi collection agent hai. Sirf Hindi mein baat kar.' 
+    }];
   }
 }
 

@@ -5,49 +5,47 @@ const path = require('path');
 const os = require('os');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 
-async function generateTTS(text) {
+/**
+ * Generates high-quality speech and converts it to telephony-compatible mulaw 8kHz.
+ * Uses toFile() for reliability and @ffmpeg-installer/ffmpeg for conversion.
+ */
+async function generateTTS(text, voice = 'hi-IN-MadhurNeural') {
   try {
     const tts = new MsEdgeTTS();
-    await tts.setMetadata(
-      'hi-IN-SwaraNeural', // Swara is generally more stable
-      OUTPUT_FORMAT.AUDIO_16KHZ_32KBITRATE_MONO_MP3
-    );
-
-    const { audioStream } = await tts.toStream(text);
-    const mp3Chunks = [];
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     
-    await new Promise((resolve, reject) => {
-      audioStream.on('data', chunk => mp3Chunks.push(chunk));
-      audioStream.on('end', resolve);
-      audioStream.on('error', reject);
-    });
-    
-    const mp3Buffer = Buffer.concat(mp3Chunks);
-    
-    const requestId = Date.now();
+    // Create temporary paths
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const tmpMp3 = path.join(os.tmpdir(), `tts_${requestId}.mp3`);
-    const tmpPcm = path.join(os.tmpdir(), `tts_${requestId}.raw`);
+    const tmpRaw = path.join(os.tmpdir(), `tts_${requestId}.raw`);
     
-    fs.writeFileSync(tmpMp3, mp3Buffer);
+    // Save to file using toFile() method - MUCH more reliable than streams
+    const { audioFilePath } = await tts.toFile(tmpMp3, text);
     
-    // Improved ffmpeg command with full error logging
+    if (!fs.existsSync(audioFilePath) || fs.statSync(audioFilePath).size === 0) {
+      throw new Error('MP3 file was not created or is empty');
+    }
+
+    console.log('[TTS] MP3 saved to:', audioFilePath, 'size:', fs.statSync(audioFilePath).size, 'bytes');
+    
+    // Convert to mulaw using portable ffmpeg
     try {
-      // Using -acodec pcm_mulaw specifically
-      execSync(`"${ffmpeg.path}" -i ${tmpMp3} -acodec pcm_mulaw -ar 8000 -ac 1 -f mulaw ${tmpPcm} -y`);
+      execSync(`"${ffmpeg.path}" -i "${audioFilePath}" -acodec pcm_mulaw -ar 8000 -ac 1 -f mulaw "${tmpRaw}" -y`, {
+        stdio: 'pipe'
+      });
     } catch (e) {
       console.error('[TTS] ffmpeg error details:', e.stderr?.toString() || e.message);
       throw e;
     }
     
-    const pcmBuffer = fs.readFileSync(tmpPcm);
+    const mulawBuffer = fs.readFileSync(tmpRaw);
     
-    try {
-      fs.unlinkSync(tmpMp3);
-      fs.unlinkSync(tmpPcm);
-    } catch (e) {}
+    // Cleanup
+    try { fs.unlinkSync(audioFilePath); } catch {}
+    try { fs.unlinkSync(tmpRaw); } catch {}
     
-    console.log('[TTS] Success! Mulaw size:', pcmBuffer.length);
-    return pcmBuffer;
+    console.log('[TTS] Success! Mulaw buffer size:', mulawBuffer.length, 'bytes');
+    return mulawBuffer;
     
   } catch (err) {
     console.error('[TTS Error]', err.message);
