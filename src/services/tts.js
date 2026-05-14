@@ -1,51 +1,61 @@
-const textToSpeech = require('@google-cloud/text-to-speech');
 const { utaw } = require('alawmulaw');
 
-// Initialize Google TTS client
-const client = new textToSpeech.TextToSpeechClient();
-
 /**
- * Generates premium Hindi speech using Google Cloud Wavenet.
- * Uses LINEAR16 at 8kHz and converts to mulaw for perfect telephony quality.
+ * Generates high-fidelity Indian speech using Sarvam AI's raw PCM output.
+ * Uses the professional 'alawmulaw' package for perfect telephony conversion.
  */
 async function generateTTS(text) {
   try {
-    console.log('[Google TTS] Generating via Wavenet-B (Hindi Male)...');
+    if (!process.env.SARVAM_API_KEY) {
+      console.error('[Sarvam TTS] SARVAM_API_KEY is missing');
+      return null;
+    }
 
-    const request = {
-      input: { text: text },
-      voice: { 
-        languageCode: 'hi-IN', 
-        name: 'hi-IN-Wavenet-B' // Premium Wavenet voice
+    const response = await fetch('https://api.sarvam.ai/text-to-speech', {
+      method: 'POST',
+      headers: {
+        'api-subscription-key': process.env.SARVAM_API_KEY,
+        'Content-Type': 'application/json'
       },
-      audioConfig: {
-        audioEncoding: 'LINEAR16', // Raw 16-bit PCM as requested
-        sampleRateHertz: 8000,     // 8kHz for VoiceLink
+      body: JSON.stringify({
+        inputs: [text],
+        target_language_code: 'hi-IN',
+        speaker: 'arya', // High quality female neural voice
+        model: 'bulbul:v2',
         pitch: 0,
-        speakingRate: 1.0
-      },
-    };
+        pace: 1.0,
+        loudness: 1.0,
+        speech_sample_rate: 8000,
+        enable_preprocessing: true,
+        audio_format: 'pcm' // This is LINEAR16 @ 8kHz
+      })
+    });
 
-    // Performs the text-to-speech request
-    const [response] = await client.synthesizeSpeech(request);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('[Sarvam TTS Error]', response.status, errText);
+      return null;
+    }
+
+    const data = await response.json();
+    const base64Audio = data.audios[0];
     
-    // response.audioContent is a Buffer containing raw LINEAR16 (PCM) data
-    const pcmBuffer = response.audioContent;
+    // Sarvam returns base64 raw PCM (LINEAR16)
+    const pcmBuffer = Buffer.from(base64Audio, 'base64');
     
-    console.log('[Google TTS] PCM received, size:', pcmBuffer.length, 'bytes');
+    console.log('[Sarvam TTS] Raw PCM received, size:', pcmBuffer.length, 'bytes');
 
     // Use professional 'alawmulaw' package for conversion
     // LINEAR16 (16-bit) to PCMU (8-bit mulaw)
-    // The library expects an array of 16-bit samples
     const pcmSamples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
     const mulawSamples = utaw.encode(pcmSamples);
     const mulawBuffer = Buffer.from(mulawSamples);
     
-    console.log('[Google TTS] Mulaw success (via alawmulaw)! size:', mulawBuffer.length, 'bytes');
+    console.log('[Sarvam TTS] Mulaw success (via alawmulaw)! size:', mulawBuffer.length, 'bytes');
     return mulawBuffer;
 
   } catch (err) {
-    console.error('[Google TTS Error]', err.message);
+    console.error('[TTS Error]', err.message);
     return null;
   }
 }
