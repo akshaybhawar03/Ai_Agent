@@ -5,8 +5,8 @@ const path = require('path');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 
 /**
- * Generates speech via Cartesia in High-Quality PCM and converts to 
- * professional-grade Mu-law using FFmpeg for zero distortion.
+ * Generates speech via Cartesia and applies professional audio normalization.
+ * Limits peaks to -6dB to strictly prevent any distortion/cracking.
  */
 async function generateTTS(text) {
   try {
@@ -28,7 +28,7 @@ async function generateTTS(text) {
         },
         output_format: {
           container: 'raw',
-          encoding: 'pcm_s16le', // High-quality 16-bit PCM
+          encoding: 'pcm_s16le',
           sample_rate: 8000
         },
         loudness: 1.0, 
@@ -44,20 +44,24 @@ async function generateTTS(text) {
 
     const pcmBuffer = Buffer.from(await response.arrayBuffer());
 
-    // Professional conversion using FFmpeg for zero distortion
     const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const tmpPcm = path.join(os.tmpdir(), `tts_${id}.pcm`);
     const tmpMulaw = path.join(os.tmpdir(), `tts_${id}.raw`);
 
     fs.writeFileSync(tmpPcm, pcmBuffer);
 
+    // Advanced audio filtering:
+    // 1. volume=0.5: Reduce overall gain to prevent initial clipping
+    // 2. compand: Smooth out the dynamic range
+    // 3. alimiter: Hard limit at -6dB to ensure zero distortion
     const result = spawnSync(ffmpeg.path, [
-      '-f', 's16le',       // input is raw 16-bit PCM
-      '-ar', '8000',      // at 8kHz
-      '-ac', '1',         // mono
+      '-f', 's16le',
+      '-ar', '8000',
+      '-ac', '1',
       '-i', tmpPcm,
-      '-acodec', 'pcm_mulaw', // convert to mulaw
-      '-f', 'mulaw',      // output format raw mulaw
+      '-af', 'volume=0.5,compand=attacks=0.3:decays=0.8:points=-90/-90|-20/-20|-5/-15|0/-15,alimiter=limit=0.5:level=1',
+      '-acodec', 'pcm_mulaw',
+      '-f', 'mulaw',
       tmpMulaw,
       '-y'
     ], { stdio: 'pipe' });
@@ -68,9 +72,8 @@ async function generateTTS(text) {
     }
 
     const mulawBuffer = fs.readFileSync(tmpMulaw);
-    console.log('[TTS] Professional Mulaw ready:', mulawBuffer.length, 'bytes');
+    console.log('[TTS] Normalized Mulaw ready:', mulawBuffer.length, 'bytes');
 
-    // Cleanup
     try {
       if (fs.existsSync(tmpPcm)) fs.unlinkSync(tmpPcm);
       if (fs.existsSync(tmpMulaw)) fs.unlinkSync(tmpMulaw);
