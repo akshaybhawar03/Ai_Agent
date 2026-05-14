@@ -105,12 +105,13 @@ server.listen(PORT, () => {
   console.log(`[Webhook URL] ${process.env.WEBHOOK_BASE_URL}`);
   
   // Check for ffmpeg
+  const ffmpegPath = require('ffmpeg-static');
   const { execSync } = require('child_process');
   try {
-    execSync('ffmpeg -version');
-    console.log('[ffmpeg] Available ✅');
+    execSync(`"${ffmpegPath}" -version`);
+    console.log('[ffmpeg] Available (Static) ✅');
   } catch (err) {
-    console.warn('[ffmpeg] NOT available ❌ - Please install ffmpeg for TTS to work');
+    console.warn('[ffmpeg] NOT available ❌ - Check ffmpeg-static installation');
   }
 
   initScheduler();
