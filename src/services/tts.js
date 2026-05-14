@@ -7,13 +7,12 @@ const cartesia = new Cartesia({
 
 /**
  * Generates ultra-low latency speech using Cartesia Sonic (Multilingual).
- * Returns mulaw audio at 8kHz directly - perfect for VoiceLink.
+ * Using 'Sunil - Official Announcer' for a professional deep male voice.
  */
 async function generateTTS(text) {
   try {
-    console.log('[Cartesia TTS] Generating via Sonic (Hindi Male)...');
+    console.log('[Cartesia TTS] Generating via Sunil (Official Announcer)...');
 
-    // Cartesia supports direct mulaw/8000 output
     const response = await fetch('https://api.cartesia.ai/tts/bytes', {
       method: 'POST',
       headers: {
@@ -26,7 +25,7 @@ async function generateTTS(text) {
         transcript: text,
         voice: {
           mode: 'id',
-          id: '74668b55-aaa7-4493-9c86-89d136854e7d' // Ayush (Hindi Male)
+          id: 'be79f378-47fe-4f9c-b92b-f02cefa62ccf' // Sunil - Official Announcer
         },
         output_format: {
           container: 'raw',
@@ -43,7 +42,6 @@ async function generateTTS(text) {
       return null;
     }
 
-    // Response is raw binary mulaw
     const arrayBuffer = await response.arrayBuffer();
     const mulawBuffer = Buffer.from(arrayBuffer);
     
