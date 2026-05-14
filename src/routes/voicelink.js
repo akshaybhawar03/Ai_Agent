@@ -63,7 +63,7 @@ function setupVoiceLinkWebSocket(wss) {
       const deepgramLive = deepgram.listen.live({
         model: 'nova-2',
         language: 'hi',
-        encoding: 'mulaw',
+        encoding: 'alaw',        // VoiceLink uses ALAW
         sample_rate: 8000,
         interim_results: false,
         punctuate: true
@@ -160,40 +160,20 @@ function setupVoiceLinkWebSocket(wss) {
 
 async function sendAudio(session, text) {
   try {
-    if (!session.streamSid) return;
-    console.log('[TTS] Generating audio for:', text.substring(0, 50));
     const audioBuffer = await generateTTS(text);
-    
     if (!audioBuffer || session.ws.readyState !== WebSocket.OPEN) return;
     
-    // Step 1: Send 'clear' event to stop any currently playing audio
-    session.ws.send(JSON.stringify({
-      event: 'clear',
-      stream_sid: session.streamSid
-    }));
+    // Official VoiceLink Media Event Format
+    const payload = {
+      event: 'media',
+      media: {
+        payload: audioBuffer.toString('base64')
+      }
+    };
     
-    // Step 2: Send audio in industry-standard chunks of 160 bytes (20ms each)
-    // Small chunks prevent jitter and 'cracking' on telephony networks
-    const chunkSize = 160; 
-    for (let i = 0; i < audioBuffer.length; i += chunkSize) {
-      const chunk = audioBuffer.slice(i, i + chunkSize);
-      session.ws.send(JSON.stringify({
-        event: 'media',
-        stream_sid: session.streamSid,
-        media: {
-          payload: chunk.toString('base64')
-        }
-      }));
-    }
+    session.ws.send(JSON.stringify(payload));
+    console.log('[VoiceLink Sent] ALAW audio event, size:', audioBuffer.length);
     
-    // Step 3: Send 'mark' event to signal end of current audio segment
-    session.ws.send(JSON.stringify({
-      event: 'mark',
-      stream_sid: session.streamSid,
-      mark: { name: 'audio_complete' }
-    }));
-    
-    console.log('[VoiceLink Sent] Chunked audio stream, total size:', audioBuffer.length);
   } catch (err) {
     console.error('[VoiceLink Send Audio Error]', err.message);
   }
