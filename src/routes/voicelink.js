@@ -79,21 +79,37 @@ function setupVoiceLinkWebSocket(wss) {
         session.transcript.push({ role: 'customer', text: transcript });
 
         try {
-          // Ensure session data is loaded if somehow missed during START
+          // Special Handling for "Yes/Haan" - Bypass AI for speed and accuracy
+          const lowerTranscript = transcript.toLowerCase().trim();
+          const isSimpleYes = ['haan', 'ha', 'haa', 'yes', 'ji', 'ji haan', 'theek hai', 'okay', 'ok'].includes(lowerTranscript);
+
+          if (isSimpleYes && session.messages.length <= 8) {
+            const directResponse = `Bilkul ji! Toh kaunsi date pakki karein? Kal ya parson?`;
+            session.messages.push({ role: 'user', content: transcript });
+            session.messages.push({ role: 'assistant', content: directResponse });
+            session.transcript.push({ role: 'agent', text: directResponse });
+            await sendAudio(session, directResponse);
+            return;
+          }
+
+          // Ensure session data is loaded
           if (!session.messages.length) {
             await loadSessionData(session, {}, customerId);
           }
           
           session.messages.push({ role: 'user', content: transcript });
           
-          // Use Groq primarily, fallback to OpenAI
           const aiClient = groq || openai;
           if (!aiClient) throw new Error('No AI client available');
 
           const response = await aiClient.chat.completions.create({
-            model: groq ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini',
+            model: 'gpt-4o-mini', // Forced gpt-4o-mini for speed and reliability
             messages: session.messages,
-            max_tokens: 100
+            max_tokens: 60,
+            temperature: 0.1,
+            top_p: 0.5,
+            frequency_penalty: 1.0,
+            presence_penalty: 0.5
           });
 
           const aiText = response.choices[0].message.content;
@@ -202,16 +218,29 @@ async function loadSessionData(session, startData, customerId) {
          "Namaste! Kya main aapse payment ke baare mein baat kar sakta hoon?"
          Short and polite raho. Max 2 sentences per response.`;
 
-    session.messages = [{ role: 'system', content: systemPrompt }];
+    session.messages = [
+      { role: 'system', content: systemPrompt },
+      { 
+        role: 'system', 
+        content: `ENFORCEMENT RULES - IN PRIORITY ORDER:
+1. NEVER ask how customer wants to pay - that is NOT your job
+2. NEVER explain payment methods (online/office/UPI etc)  
+3. NEVER ask for account details or order details - you already know them
+4. Your ONLY job: Get a payment DATE from customer
+5. Keep response under 20 words always
+6. If customer says haan/yes - immediately ask for a specific date
+7. If you have a date - say "Dhanyawad, namaskar!" and STOP completely
+8. Speak only Hinglish - NO full English sentences ever`
+      }
+    ];
     console.log(`[VoiceLink] System prompt set for customer: ${session.customerData?.customer_name || 'Unknown'}`);
     
   } catch (err) {
     console.error('[VoiceLink Load Data Error]', err.message);
-    // Even on error, set a basic prompt so AI doesn't stay silent or speak English
-    session.messages = [{ 
-      role: 'system', 
-      content: 'Tu ek professional Hindi collection agent hai. Sirf Hindi mein baat kar.' 
-    }];
+    session.messages = [
+      { role: 'system', content: 'Tu ek professional Hindi collection agent hai. Sirf Hindi mein baat kar.' },
+      { role: 'system', content: 'ONLY MISSION: Get a payment date. Keep it short.' }
+    ];
   }
 }
 
