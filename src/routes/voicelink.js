@@ -263,6 +263,47 @@ router.post('/call', async (req, res) => {
 
 async function getAIResponse(session, userText) {
   try {
+    // Special handling BEFORE calling AI for instant response
+    const lower = userText.toLowerCase().trim();
+    
+    // Date detected - customer gave commitment
+    const dateWords = ['kal', 'parson', 'din mein', 'din me', 
+      'hafte mein', 'hafte me', 'week', 'month', 'mahine',
+      'tarikh', 'date', 'monday', 'tuesday', 'wednesday',
+      'thursday', 'friday', 'saturday', 'sunday',
+      'somwar', 'mangal', 'budh', 'guru', 'shukra',
+      'do din', 'teen din', 'char din', 'paanch din',
+      'ek hafte', 'do hafte', 'kar dunga', 'kar dungi',
+      'kar deta', 'kar deti', 'ho jayega', 'ho jayegi'];
+    
+    const hasDate = dateWords.some(w => lower.includes(w));
+    
+    if (hasDate) {
+      const thankYou = `Bilkul ji! Note kar liya. Dhanyawad ${session.customerData?.customer_name || 'ji'}, namaskar!`;
+      session.messages.push({ role: 'user', content: userText });
+      session.messages.push({ role: 'assistant', content: thankYou });
+      session.transcript.push({ role: 'agent', text: thankYou });
+      console.log('[AI] Date detected, ending call:', userText);
+      // Close call after audio
+      session.callEnded = true;
+      setTimeout(() => session.ws?.close(), 4000);
+      return thankYou;
+    }
+
+    // Yes/Haan detected
+    const yesWords = ['haan', 'ha', 'haa', 'yes', 'ji haan', 
+      'theek hai', 'okay', 'ok', 'bilkul', 'zaroor', 'haan bolun'];
+    const isYes = yesWords.some(w => lower.includes(w)) && lower.length < 20;
+    
+    if (isYes && session.messages.length <= 6) {
+      const dateAsk = `Toh kaunsi date pakki karein? Kal ya parson?`;
+      session.messages.push({ role: 'user', content: userText });
+      session.messages.push({ role: 'assistant', content: dateAsk });
+      session.transcript.push({ role: 'agent', text: dateAsk });
+      return dateAsk;
+    }
+
+    // Call AI only for complex responses
     session.messages.push({ role: 'user', content: userText });
 
     const response = await fetch('https://api.sarvam.ai/v1/chat/completions', {
@@ -274,54 +315,55 @@ async function getAIResponse(session, userText) {
       body: JSON.stringify({
         model: 'sarvam-m',
         messages: session.messages,
-        max_tokens: 60,
+        max_tokens: 80,
         temperature: 0.1
       })
     });
 
     if (!response.ok) {
       console.error('[Sarvam LLM Error]', await response.text());
-      return null;
+      return 'Theek hai ji, kab tak payment हो सकती है?';
     }
 
     const data = await response.json();
-    let rawText = data.choices[0].message.content || '';
-    
-    console.log('[AI Raw]', rawText.substring(0, 200));
+    let rawText = data.choices[0]?.message?.content || '';
+    console.log('[AI Raw Length]', rawText.length);
 
-    // Step 1: Remove <think>...</think> block manually
-    let clean = rawText;
-    const thinkStart = clean.indexOf('<think>');
-    const thinkEnd = clean.indexOf('</think>');
+    // Extract text AFTER </think> tag
+    const closeThink = rawText.indexOf('</think>');
+    let clean = '';
     
-    if (thinkStart !== -1 && thinkEnd !== -1) {
-      clean = clean.substring(thinkEnd + 8).trim();
-    } else if (thinkStart !== -1) {
-      // No closing tag - take nothing (still thinking)
-      clean = '';
+    if (closeThink !== -1) {
+      clean = rawText.substring(closeThink + 8).trim();
+    } else {
+      // No closing tag - model still thinking or cutoff
+      const lines = rawText.split('\n').filter(l => l.trim());
+      const lastLine = lines[lines.length - 1] || '';
+      if (lastLine.length > 5 && !lastLine.includes('<think') && !lastLine.includes('According')) {
+        clean = lastLine;
+      } else {
+        clean = 'Kab tak payment ho sakegi ji?';
+      }
     }
 
-    // Step 2: If still empty or garbage, use fallback
+    // Limit length
+    if (clean.length > 120) {
+      const cut = clean.lastIndexOf(' ', 120);
+      clean = clean.substring(0, cut > 0 ? cut : 120) + '.';
+    }
+
     if (!clean || clean.length < 3) {
-      clean = 'Ji, kab tak payment ho sakti hai?';
-    }
-
-    // Step 3: Limit to 100 chars
-    if (clean.length > 100) {
-      const cutoff = clean.lastIndexOf(' ', 100);
-      clean = clean.substring(0, cutoff > 0 ? cutoff : 100) + '.';
+      clean = 'Kab tak payment ho sakegi ji?';
     }
 
     console.log('[AI Final]', clean);
-
     session.messages.push({ role: 'assistant', content: clean });
     session.transcript.push({ role: 'agent', text: clean });
-
     return clean;
 
   } catch (err) {
     console.error('[AI Error]', err.message);
-    return null;
+    return 'Theek hai ji, kab tak payment ho sakti hai?';
   }
 }
 
