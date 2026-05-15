@@ -262,11 +262,9 @@ router.post('/call', async (req, res) => {
 });
 
 async function getAIResponse(session, userText) {
-  if (!session.messages || session.messages.length === 0) return null;
-
-  session.messages.push({ role: 'user', content: userText });
-
   try {
+    session.messages.push({ role: 'user', content: userText });
+
     const response = await fetch('https://api.sarvam.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -274,39 +272,55 @@ async function getAIResponse(session, userText) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'sarvam-m', // Switched to sarvam-m as requested
+        model: 'sarvam-m',
         messages: session.messages,
         max_tokens: 60,
-        temperature: 0.1,
-        top_p: 0.5
+        temperature: 0.1
       })
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error('[Sarvam LLM Error]', err);
+      console.error('[Sarvam LLM Error]', await response.text());
       return null;
     }
 
     const data = await response.json();
-    const rawText = data.choices[0].message.content;
+    let rawText = data.choices[0].message.content || '';
     
-    // Remove <think> thinking tags
-    const aiText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    
-    // Limit length to 150 chars for telephony stability
-    const finalText = aiText.length > 150 
-      ? aiText.substring(0, aiText.lastIndexOf(' ', 150)) + '.'
-      : aiText;
+    console.log('[AI Raw]', rawText.substring(0, 200));
 
-    console.log('[AI Clean Response]', finalText);
+    // Step 1: Remove <think>...</think> block manually
+    let clean = rawText;
+    const thinkStart = clean.indexOf('<think>');
+    const thinkEnd = clean.indexOf('</think>');
     
-    session.messages.push({ role: 'assistant', content: finalText });
-    session.transcript.push({ role: 'agent', text: finalText });
-    
-    return finalText;
+    if (thinkStart !== -1 && thinkEnd !== -1) {
+      clean = clean.substring(thinkEnd + 8).trim();
+    } else if (thinkStart !== -1) {
+      // No closing tag - take nothing (still thinking)
+      clean = '';
+    }
+
+    // Step 2: If still empty or garbage, use fallback
+    if (!clean || clean.length < 3) {
+      clean = 'Ji, kab tak payment ho sakti hai?';
+    }
+
+    // Step 3: Limit to 100 chars
+    if (clean.length > 100) {
+      const cutoff = clean.lastIndexOf(' ', 100);
+      clean = clean.substring(0, cutoff > 0 ? cutoff : 100) + '.';
+    }
+
+    console.log('[AI Final]', clean);
+
+    session.messages.push({ role: 'assistant', content: clean });
+    session.transcript.push({ role: 'agent', text: clean });
+
+    return clean;
+
   } catch (err) {
-    console.error('[Sarvam LLM Fetch Error]', err.message);
+    console.error('[AI Error]', err.message);
     return null;
   }
 }
