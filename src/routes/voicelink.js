@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const WebSocket = require('ws');
-const { generatePrompt } = require('../utils/promptGenerator');
+const { generatePrompt, convertToHindi } = require('../utils/promptGenerator');
 const { detectOutcome } = require('../utils/outcomeDetector');
 const { createClient } = require('@deepgram/sdk');
 const { supabaseAdmin: supabase } = require('../services/supabase');
@@ -96,7 +96,7 @@ function setupVoiceLinkWebSocket(wss) {
             await loadSessionData(session, {}, customerId);
           }
           
-          const aiText = await getAIResponse(session, transcript);
+          const aiText = getAIResponse(session, transcript);
           if (aiText) {
             await sendAudio(session, aiText);
           }
@@ -211,6 +211,7 @@ async function loadSessionData(session, startData, customerId) {
     const combinedPrompt = `${systemPrompt}\n\nENFORCEMENT RULES - IN PRIORITY ORDER:\n1. NEVER ask how customer wants to pay - that is NOT your job\n2. NEVER explain payment methods (online/office/UPI etc)\n3. NEVER ask for account details or order details - you already know them\n4. Your ONLY job: Get a payment DATE from customer\n5. Keep response under 20 words always\n6. If customer says haan/yes - immediately ask for a specific date\n7. If you have a date - say "Dhanyawad, namaskar!" and STOP completely\n8. Speak only Hinglish - NO full English sentences ever`;
 
     session.messages = [{ role: 'system', content: combinedPrompt }];
+    session.customerData.amountHindi = convertToHindi(customer.amount_due);
     console.log(`[VoiceLink] System prompt set for customer: ${session.customerData?.customer_name || 'Unknown'}`);
     
   } catch (err) {
@@ -261,110 +262,96 @@ router.post('/call', async (req, res) => {
   }
 });
 
-async function getAIResponse(session, userText) {
-  try {
-    // Special handling BEFORE calling AI for instant response
-    const lower = userText.toLowerCase().trim();
-    
-    // Date detected - customer gave commitment
-    const dateWords = ['kal', 'parson', 'din mein', 'din me', 
-      'hafte mein', 'hafte me', 'week', 'month', 'mahine',
-      'tarikh', 'date', 'monday', 'tuesday', 'wednesday',
-      'thursday', 'friday', 'saturday', 'sunday',
-      'somwar', 'mangal', 'budh', 'guru', 'shukra',
-      'do din', 'teen din', 'char din', 'paanch din',
-      'ek hafte', 'do hafte', 'kar dunga', 'kar dungi',
-      'kar deta', 'kar deti', 'ho jayega', 'ho jayegi'];
-    
-    const hasDate = dateWords.some(w => lower.includes(w));
-    
-    if (hasDate) {
-      const thankYou = `Bilkul ji! Note kar liya. Dhanyawad ${session.customerData?.customer_name || 'ji'}, namaskar!`;
-      session.messages.push({ role: 'user', content: userText });
-      session.messages.push({ role: 'assistant', content: thankYou });
-      session.transcript.push({ role: 'agent', text: thankYou });
-      console.log('[AI] Date detected, ending call:', userText);
-      // Close call after audio
-      session.callEnded = true;
-      setTimeout(() => session.ws?.close(), 4000);
-      return thankYou;
-    }
+function getAIResponse(session, userText) {
+  const lower = userText.toLowerCase().trim();
+  const customerName = session.customerData?.customer_name || 'ji';
+  const amountHindi = session.customerData?.amountHindi || 'aapka payment';
 
-    // Yes/Haan detected
-    const yesWords = ['haan', 'ha', 'haa', 'yes', 'ji haan', 
-      'theek hai', 'okay', 'ok', 'bilkul', 'zaroor', 'haan bolun'];
-    const isYes = yesWords.some(w => lower.includes(w)) && lower.length < 20;
-    
-    if (isYes && session.messages.length <= 6) {
-      const dateAsk = `Toh kaunsi date pakki karein? Kal ya parson?`;
-      session.messages.push({ role: 'user', content: userText });
-      session.messages.push({ role: 'assistant', content: dateAsk });
-      session.transcript.push({ role: 'agent', text: dateAsk });
-      return dateAsk;
-    }
-
-    // Call AI only for complex responses
-    session.messages.push({ role: 'user', content: userText });
-
-    const response = await fetch('https://api.sarvam.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'api-subscription-key': process.env.SARVAM_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'sarvam-m',
-        messages: session.messages,
-        max_tokens: 80,
-        temperature: 0.1
-      })
-    });
-
-    if (!response.ok) {
-      console.error('[Sarvam LLM Error]', await response.text());
-      return 'Theek hai ji, kab tak payment हो सकती है?';
-    }
-
-    const data = await response.json();
-    let rawText = data.choices[0]?.message?.content || '';
-    console.log('[AI Raw Length]', rawText.length);
-
-    // Extract text AFTER </think> tag
-    const closeThink = rawText.indexOf('</think>');
-    let clean = '';
-    
-    if (closeThink !== -1) {
-      clean = rawText.substring(closeThink + 8).trim();
-    } else {
-      // No closing tag - model still thinking or cutoff
-      const lines = rawText.split('\n').filter(l => l.trim());
-      const lastLine = lines[lines.length - 1] || '';
-      if (lastLine.length > 5 && !lastLine.includes('<think') && !lastLine.includes('According')) {
-        clean = lastLine;
-      } else {
-        clean = 'Kab tak payment ho sakegi ji?';
-      }
-    }
-
-    // Limit length
-    if (clean.length > 120) {
-      const cut = clean.lastIndexOf(' ', 120);
-      clean = clean.substring(0, cut > 0 ? cut : 120) + '.';
-    }
-
-    if (!clean || clean.length < 3) {
-      clean = 'Kab tak payment ho sakegi ji?';
-    }
-
-    console.log('[AI Final]', clean);
-    session.messages.push({ role: 'assistant', content: clean });
-    session.transcript.push({ role: 'agent', text: clean });
-    return clean;
-
-  } catch (err) {
-    console.error('[AI Error]', err.message);
-    return 'Theek hai ji, kab tak payment ho sakti hai?';
+  // DATE DETECTED - end call
+  const dateWords = ['kal', 'parson', 'din mein', 'din me', 'hafte',
+    'week', 'mahine', 'tarikh', 'kar dunga', 'kar dungi',
+    'kar deta', 'kar deti', 'ho jayega', 'ho jayegi',
+    'do din', 'teen din', 'char din', 'paanch din',
+    'somwar', 'mangal', 'budh', 'shukra', 'shanivaar',
+    'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+    'saturday', 'sunday', 'tarikh ko', 'tak kar'];
+  
+  if (dateWords.some(w => lower.includes(w))) {
+    session.callEnded = true;
+    setTimeout(() => session.ws?.close(), 4000);
+    const res = `Bilkul ji! Note kar liya. Dhanyawad ${customerName} ji, namaskar!`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
   }
+
+  // PAID ALREADY
+  if (['kar di', 'ho gayi', 'de di', 'paid', 'transfer', 
+       'bhej di', 'pay kar', 'payment ki'].some(w => lower.includes(w))) {
+    session.callEnded = true;
+    setTimeout(() => session.ws?.close(), 3000);
+    const res = `Bahut achha ji! Record update kar liya. Dhanyawad, namaskar!`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // WRONG NUMBER
+  if (['galat', 'wrong', 'koi nahi', 'yahan nahi', 
+       'pata nahi'].some(w => lower.includes(w))) {
+    session.callEnded = true;
+    setTimeout(() => session.ws?.close(), 2000);
+    const res = `Maafi ji, disturb kiya. Namaskar!`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // NO MONEY
+  if (['nahi hai', 'paisa nahi', 'abhi nahi', 'funds nahi',
+       'problem hai', 'mushkil hai'].some(w => lower.includes(w))) {
+    const res = `Koi baat nahi ji. Aadha abhi de do, baaki baad mein. Kab tak ho sakta hai?`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // BUSY
+  if (['busy', 'baad mein', 'abhi nahi', 'meeting', 
+       'kaam', 'baad'].some(w => lower.includes(w))) {
+    const res = `Theek hai ji. Kal kaunsa time theek rahega?`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // ANGRY
+  if (['nahi karunga', 'nahi karungi', 'mat karo', 'pareshan', 
+       'tang', 'legal', 'police', 'complaint'].some(w => lower.includes(w))) {
+    const res = `Samajh sakta hoon ji. Kal baat karte hain. Namaskar!`;
+    session.callEnded = true;
+    setTimeout(() => session.ws?.close(), 3000);
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // YES / HAAN
+  if (['haan', 'ha ', 'haa', 'yes', 'bilkul', 'zaroor', 
+       'theek', 'okay', 'ok', 'ji'].some(w => lower.includes(w)) 
+       && lower.length < 15) {
+    const res = `Toh kaunsi date pakki karein? Kal ya parson?`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // WHO ARE YOU
+  if (['kaun', 'who', 'kya', 'kahan se', 'company'].some(w => lower.includes(w))) {
+    const agentName = session.agentData?.agent_name || 'Raj';
+    const bizName = session.businessData?.business_name || 'humari company';
+    const res = `Main ${agentName} hoon, ${bizName} se. Aapka ${amountHindi} pending hai ji.`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // DEFAULT - ask for date
+  const res = `Theek hai ji, toh kab tak payment ho sakegi? Ek date bata dijiye.`;
+  session.transcript.push({ role: 'agent', text: res });
+  return res;
 }
 
 module.exports = { router, setupVoiceLinkWebSocket };
