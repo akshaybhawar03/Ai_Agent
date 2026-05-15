@@ -167,22 +167,38 @@ function setupVoiceLinkWebSocket(wss) {
 
 async function sendAudio(session, text) {
   try {
-    const audioBuffer = await generateTTS(text);
-    if (!audioBuffer || session.ws.readyState !== WebSocket.OPEN) return;
+    const isTwilio = session.streamSid?.startsWith('MZ');
+    const encoding = isTwilio ? 'mulaw' : 'alaw';
     
-    // Official VoiceLink Media Event Format
-    const payload = {
-      event: 'media',
-      media: {
-        payload: audioBuffer.toString('base64')
-      }
-    };
-    
-    session.ws.send(JSON.stringify(payload));
-    console.log('[VoiceLink Sent] MULAW audio event, size:', audioBuffer.length);
-    
+    const audioBuffer = await generateTTS(text, encoding);
+    if (!audioBuffer || session.ws.readyState !== 1) return;
+
+    let payload;
+    if (isTwilio) {
+      // Twilio format
+      payload = JSON.stringify({
+        event: 'media',
+        streamSid: session.streamSid,
+        media: {
+          payload: audioBuffer.toString('base64')
+        }
+      });
+    } else {
+      // VoiceLink format
+      payload = JSON.stringify({
+        event: 'media',
+        media: {
+          payload: audioBuffer.toString('base64')
+        }
+      });
+    }
+
+    session.ws.send(payload);
+    console.log('[Audio Sent]', isTwilio ? 'Twilio' : 'VoiceLink', 
+      'size:', audioBuffer.length);
+
   } catch (err) {
-    console.error('[VoiceLink Send Audio Error]', err.message);
+    console.error('[Send Audio Error]', err.message);
   }
 }
 

@@ -5,11 +5,11 @@ const path = require('path');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 
 /**
- * Generates speech via Sarvam AI and converts to Twilio/Standard Mu-law format.
+ * Generates speech via Sarvam AI and converts to requested format (ALAW or MULAW).
  */
-async function generateTTS(text) {
+async function generateTTS(text, encoding = 'alaw') {
   try {
-    console.log('[Sarvam TTS] Generating WAV with model: bulbul:v3');
+    console.log(`[Sarvam TTS] Generating WAV with model: bulbul:v3 for ${encoding.toUpperCase()}`);
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
       method: 'POST',
       headers: {
@@ -38,18 +38,21 @@ async function generateTTS(text) {
 
     const id = Date.now();
     const tmpWav = path.join(os.tmpdir(), `tts_${id}.wav`);
-    const tmpMulaw = path.join(os.tmpdir(), `tts_${id}.mulaw`);
+    const tmpOutput = path.join(os.tmpdir(), `tts_${id}.${encoding}`);
 
     fs.writeFileSync(tmpWav, wavBuffer);
 
-    // Standard Twilio Format: MULAW, 8000Hz, Mono
+    // Dynamic Format: MULAW or ALAW, 8000Hz, Mono
+    const ffmpegCodec = encoding === 'mulaw' ? 'pcm_mulaw' : 'pcm_alaw';
+    const ffmpegFormat = encoding === 'mulaw' ? 'mulaw' : 'alaw';
+
     const result = spawnSync(ffmpeg.path, [
       '-i', tmpWav,
       '-ar', '8000',
       '-ac', '1',
-      '-acodec', 'pcm_mulaw',
-      '-f', 'mulaw',
-      tmpMulaw,
+      '-acodec', ffmpegCodec,
+      '-f', ffmpegFormat,
+      tmpOutput,
       '-y'
     ], { stdio: 'pipe' });
 
@@ -58,13 +61,13 @@ async function generateTTS(text) {
       return null;
     }
 
-    const mulawBuffer = fs.readFileSync(tmpMulaw);
-    console.log('[TTS] MULAW ready for Twilio:', mulawBuffer.length, 'bytes');
+    const audioBuffer = fs.readFileSync(tmpOutput);
+    console.log(`[TTS] ${encoding.toUpperCase()} ready:`, audioBuffer.length, 'bytes');
 
     try { fs.unlinkSync(tmpWav); } catch {}
-    try { fs.unlinkSync(tmpMulaw); } catch {}
+    try { fs.unlinkSync(tmpOutput); } catch {}
 
-    return mulawBuffer;
+    return audioBuffer;
 
   } catch (err) {
     console.error('[TTS Error Global]', err.message);
