@@ -8,11 +8,11 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
  * Generates speech via Sarvam AI and converts to requested format (ALAW or MULAW).
  */
 /**
- * Generates speech via Sarvam AI in MP3 format.
+ * Generates speech via Sarvam AI in WAV format (Fast & High Quality).
  */
 async function generateTTS(text) {
   try {
-    console.log(`[Sarvam TTS] Generating MP3 with model: bulbul:v3`);
+    console.log(`[Sarvam TTS] Generating WAV with model: bulbul:v3`);
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
       method: 'POST',
       headers: {
@@ -27,7 +27,7 @@ async function generateTTS(text) {
         pace: 1.1,
         speech_sample_rate: 16000,
         enable_preprocessing: true,
-        audio_format: 'mp3' // Changed to mp3 for maximum compatibility
+        audio_format: 'wav' 
       })
     });
 
@@ -38,7 +38,7 @@ async function generateTTS(text) {
 
     const data = await response.json();
     const audioBuffer = Buffer.from(data.audios[0], 'base64');
-    console.log(`[TTS] MP3 ready:`, audioBuffer.length, 'bytes');
+    console.log(`[TTS] WAV ready:`, audioBuffer.length, 'bytes');
 
     return audioBuffer;
 
