@@ -269,7 +269,8 @@ async function postCallUpdate(sessionId, { status, duration, recordingUrl, expli
     }).eq('id', session.customerId);
 
     // Update call log
-    await supabaseAdmin.from('call_logs').update({
+    console.log(`[PostCall] Updating database for Call SID: ${callSid}...`);
+    const { error: updateError } = await supabaseAdmin.from('call_logs').update({
       duration: duration || Math.floor((Date.now() - session.startTime) / 1000),
       transcript: session.transcript,
       ai_summary: outcomeData.summary,
@@ -278,16 +279,19 @@ async function postCallUpdate(sessionId, { status, duration, recordingUrl, expli
       amount_promised: outcomeData.amount_promised,
       promise_date: outcomeData.promise_date,
       status: 'completed'
-    }).eq('twilio_call_sid', session.twilioCallSid);
+    }).eq('twilio_call_sid', callSid);
+
+    if (updateError) throw updateError;
+    console.log(`[PostCall] Call log updated successfully for ${session.customer.customer_name}`);
   } catch (error) {
     console.error('Post-call update failed:', error.message);
     // Still update the log as completed even if analysis fails
     await supabaseAdmin.from('call_logs').update({
-      duration: duration || Math.floor((Date.now() - session.startTime) / 1000),
-      transcript: session.transcript,
+      duration: duration || Math.floor((Date.now() - (session?.startTime || Date.now())) / 1000),
+      transcript: session?.transcript || '',
       status: 'completed',
       outcome: 'error'
-    }).eq('twilio_call_sid', session.twilioCallSid);
+    }).eq('twilio_call_sid', callSid);
   } finally {
     // Clean up session
     activeCalls.delete(sessionId);
