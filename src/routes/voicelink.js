@@ -64,8 +64,22 @@ function setupVoiceLinkWebSocket(wss) {
         session.transcript.push({ role: 'customer', text: transcript });
 
         try {
-          // Special Handling for "Yes/Haan" - Bypass AI for speed and accuracy
           const lowerTranscript = transcript.toLowerCase().trim();
+
+          // Voicemail / IVR Detection
+          const voicemailPhrases = [
+            'please stay on the line', 'not available', 'leave a message', 'after the tone',
+            'voicemail', 'please leave', 'press 1', 'press 2', 'for english', 'hindi ke liye',
+            'our office hours', 'thank you for calling', 'all our representatives', 'your call is important'
+          ];
+          
+          if (voicemailPhrases.some(phrase => lowerTranscript.includes(phrase))) {
+            console.log('[VoiceLink] Voicemail/IVR detected, ending call');
+            ws.close();
+            return;
+          }
+
+          // Special Handling for "Yes/Haan" - Bypass AI for speed and accuracy
           const isSimpleYes = ['haan', 'ha', 'haa', 'yes', 'ji', 'ji haan', 'theek hai', 'okay', 'ok'].includes(lowerTranscript);
 
           if (isSimpleYes && session.messages.length <= 8) {
@@ -260,7 +274,7 @@ async function getAIResponse(session, userText) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'sarvam-2-small', // Using faster model
+        model: 'sarvam-m', // Switched to sarvam-m as requested
         messages: session.messages,
         max_tokens: 60,
         temperature: 0.1,
@@ -277,16 +291,15 @@ async function getAIResponse(session, userText) {
     const data = await response.json();
     const rawText = data.choices[0].message.content;
     
-    // Fix 1: Strip thinking tags
-    let aiText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    // Remove <think> thinking tags
+    const aiText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     
-    console.log('[AI Raw Response]', rawText.substring(0, 100));
-    console.log('[AI Clean Response]', aiText);
-
-    // Fix 3: Truncate very long responses for telephony stability
+    // Limit length to 150 chars for telephony stability
     const finalText = aiText.length > 150 
       ? aiText.substring(0, aiText.lastIndexOf(' ', 150)) + '.'
       : aiText;
+
+    console.log('[AI Clean Response]', finalText);
     
     session.messages.push({ role: 'assistant', content: finalText });
     session.transcript.push({ role: 'agent', text: finalText });
