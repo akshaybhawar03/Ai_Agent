@@ -92,6 +92,14 @@ function setupVoiceLinkWebSocket(wss) {
       });
 
       session.deepgramLive = deepgramLive;
+
+      // Timeout: If no stream_sid received in 15 seconds, close connection
+      setTimeout(() => {
+        if (!session.streamSid) {
+          console.log('[VoiceLink] No stream SID received in 15s, closing stale connection');
+          ws.close();
+        }
+      }, 15000);
     } catch (err) {
       console.error('[VoiceLink] Deepgram Init Error:', err);
     }

@@ -271,10 +271,12 @@ async function bulkCall(businessId) {
   const results = [];
   for (const customer of customers) {
     try {
-      // Stagger calls by 10 seconds each
-      await new Promise(resolve => setTimeout(resolve, results.length * 10000));
       const result = await initiateCall(customer.id, businessId);
+      console.log(`[CallEngine] Bulk Call initiated for ${customer.customer_name}`);
       results.push({ customerId: customer.id, ...result });
+      
+      // Wait 3 seconds between calls to avoid queue overflow
+      await new Promise(r => setTimeout(r, 3000));
     } catch (error) {
       results.push({ customerId: customer.id, error: error.message });
     }

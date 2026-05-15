@@ -38,16 +38,15 @@ async function ensureAuthenticated() {
   }
 }
 
-async function triggerVoiceLinkCall(customer, business) {
+async function triggerVoiceLinkCall(customer, business, retries = 2) {
   try {
     const token = await ensureAuthenticated();
     if (!token) throw new Error('VoiceLink authentication failed');
 
-    // Remove + from phone numbers if present (VoiceLink often expects raw digits)
     const cleanTo = customer.phone.replace(/\D/g, '');
     const cleanFrom = (process.env.VOICELINK_DID_NUMBER || '').replace(/\D/g, '');
 
-    console.log(`[VoiceLink] Triggering outbound lead to ${cleanTo} from DID ${cleanFrom}`);
+    console.log(`[VoiceLink] Triggering outbound lead to ${cleanTo} from DID ${cleanFrom} (Retries left: ${retries})`);
 
     const response = await fetch('https://app.voicelink.co.in/api/v1/add_lead', {
       method: 'POST',
@@ -68,21 +67,35 @@ async function triggerVoiceLinkCall(customer, business) {
       })
     });
 
-    const responseText = await response.text();
-    console.log(`[VoiceLink] Add Lead Response (Status ${response.status}):`, responseText.substring(0, 200));
+    if (!response.ok && retries > 0) {
+      console.log(`[VoiceLink] API error, retrying call for ${customer.phone}...`);
+      await new Promise(r => setTimeout(r, 2000));
+      return triggerVoiceLinkCall(customer, business, retries - 1);
+    }
 
+    const responseText = await response.text();
     let data;
     try {
       data = JSON.parse(responseText);
     } catch (e) {
-      throw new Error(`VoiceLink returned non-JSON. Status: ${response.status}. Body: ${responseText.substring(0, 50)}`);
+      throw new Error(`VoiceLink returned non-JSON. Status: ${response.status}`);
     }
 
     if (response.status >= 400 || (data.status === false)) {
+       if (retries > 0) {
+         console.log(`[VoiceLink] ${data.message}, retrying...`);
+         await new Promise(r => setTimeout(r, 2000));
+         return triggerVoiceLinkCall(customer, business, retries - 1);
+       }
        throw new Error(data.message || `VoiceLink API error (Status ${response.status})`);
     }
     return { id: data.id || Date.now().toString(), ...data };
   } catch (err) {
+    if (retries > 0) {
+      console.log(`[VoiceLink] Network error, retrying call...`);
+      await new Promise(r => setTimeout(r, 2000));
+      return triggerVoiceLinkCall(customer, business, retries - 1);
+    }
     throw err;
   }
 }
