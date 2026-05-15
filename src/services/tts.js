@@ -5,11 +5,11 @@ const path = require('path');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 
 /**
- * Generates speech via Sarvam AI and converts to Official VoiceLink A-LAW format.
+ * Generates speech via Sarvam AI and converts to Twilio/Standard Mu-law format.
  */
 async function generateTTS(text) {
   try {
-    console.log('[Sarvam TTS] Generating WAV with model: bulbul:v2');
+    console.log('[Sarvam TTS] Generating WAV with model: bulbul:v3');
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
       method: 'POST',
       headers: {
@@ -38,18 +38,18 @@ async function generateTTS(text) {
 
     const id = Date.now();
     const tmpWav = path.join(os.tmpdir(), `tts_${id}.wav`);
-    const tmpAlaw = path.join(os.tmpdir(), `tts_${id}.alaw`);
+    const tmpMulaw = path.join(os.tmpdir(), `tts_${id}.mulaw`);
 
     fs.writeFileSync(tmpWav, wavBuffer);
 
-    // Official VoiceLink Format: ALAW, 8000Hz, Mono
+    // Standard Twilio Format: MULAW, 8000Hz, Mono
     const result = spawnSync(ffmpeg.path, [
       '-i', tmpWav,
       '-ar', '8000',
       '-ac', '1',
-      '-acodec', 'pcm_alaw',
-      '-f', 'alaw',
-      tmpAlaw,
+      '-acodec', 'pcm_mulaw',
+      '-f', 'mulaw',
+      tmpMulaw,
       '-y'
     ], { stdio: 'pipe' });
 
@@ -58,13 +58,13 @@ async function generateTTS(text) {
       return null;
     }
 
-    const alawBuffer = fs.readFileSync(tmpAlaw);
-    console.log('[TTS] ALAW ready for VoiceLink:', alawBuffer.length, 'bytes');
+    const mulawBuffer = fs.readFileSync(tmpMulaw);
+    console.log('[TTS] MULAW ready for Twilio:', mulawBuffer.length, 'bytes');
 
     try { fs.unlinkSync(tmpWav); } catch {}
-    try { fs.unlinkSync(tmpAlaw); } catch {}
+    try { fs.unlinkSync(tmpMulaw); } catch {}
 
-    return alawBuffer;
+    return mulawBuffer;
 
   } catch (err) {
     console.error('[TTS Error Global]', err.message);

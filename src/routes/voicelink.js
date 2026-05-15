@@ -48,7 +48,7 @@ function setupVoiceLinkWebSocket(wss) {
       const deepgramLive = deepgram.listen.live({
         model: 'nova-2',
         language: 'hi',
-        encoding: 'alaw',        // VoiceLink uses ALAW
+        encoding: 'mulaw',        // Twilio uses MULAW
         sample_rate: 8000,
         interim_results: false,
         punctuate: true
@@ -179,7 +179,7 @@ async function sendAudio(session, text) {
     };
     
     session.ws.send(JSON.stringify(payload));
-    console.log('[VoiceLink Sent] ALAW audio event, size:', audioBuffer.length);
+    console.log('[VoiceLink Sent] MULAW audio event, size:', audioBuffer.length);
     
   } catch (err) {
     console.error('[VoiceLink Send Audio Error]', err.message);
