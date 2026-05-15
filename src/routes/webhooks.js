@@ -172,7 +172,8 @@ router.post('/status', async (req, res) => {
       await postCallUpdate(sessionId, {
         status: callStatus,
         duration: req.body.CallDuration,
-        recordingUrl: req.body.RecordingUrl
+        recordingUrl: req.body.RecordingUrl,
+        explicitCallSid: req.body.CallSid
       }); 
     } catch (e) {
       console.error('[Status Webhook Error]', e.message);

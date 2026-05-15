@@ -238,11 +238,14 @@ async function processConversation(sessionId, userSpeech) {
 /**
  * Handle post-call processing
  */
-async function postCallUpdate(sessionId, data = {}) {
-  const session = activeCalls.get(sessionId);
-  if (!session) return;
-
-  const { duration, recordingUrl } = data;
+async function postCallUpdate(sessionId, { status, duration, recordingUrl, explicitCallSid }) {
+  const session = await getSession(sessionId);
+  const callSid = explicitCallSid || session?.callSid;
+  
+  if (!callSid) {
+    console.error(`[PostCall] No CallSid found for session ${sessionId}. Cannot update DB.`);
+    return;
+  }
   const apiKey = session.business.openai_api_key || process.env.OPENAI_API_KEY;
 
   try {
@@ -355,6 +358,15 @@ async function getSession(sessionId) {
     const { data: customer } = await supabaseAdmin.from('customers').select('*').eq('id', customerId).single();
     const { data: agent } = await supabaseAdmin.from('agents').select('*').eq('business_id', businessId).eq('is_active', true).single();
 
+    // Fetch the latest call SID for this customer to link the session
+    const { data: lastLog } = await supabaseAdmin
+      .from('call_logs')
+      .select('twilio_call_sid')
+      .eq('customer_id', customerId)
+      .order('called_at', { ascending: false })
+      .limit(1)
+      .single();
+
     if (!business || !customer || !agent) return null;
 
     const systemPrompt = generatePrompt(agent, customer, business);
@@ -366,6 +378,7 @@ async function getSession(sessionId) {
       business,
       agent,
       customer,
+      callSid: lastLog?.twilio_call_sid, // Link the recovered SID
       systemPrompt,
       messages: [{ role: 'system', content: systemPrompt }],
       transcript: '[Recovered Session]\n',
@@ -374,7 +387,7 @@ async function getSession(sessionId) {
     };
 
     activeCalls.set(sessionId, session);
-    console.log(`[CallEngine] Session recovered successfully for ${customer.customer_name}`);
+    console.log(`[CallEngine] Session recovered successfully for ${customer.customer_name} (SID: ${session.callSid})`);
     return session;
   } catch (err) {
     console.error('[CallEngine] Session recovery failed:', err.message);
