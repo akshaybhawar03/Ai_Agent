@@ -199,8 +199,9 @@ async function loadSessionData(session, customerId) {
       session.customerData = customer;
     }
     
-    const { data: business } = await supabase.from('business_profile').select('*').limit(1).single();
-    const { data: agent } = await supabase.from('agent_config').select('*').eq('is_active', true).limit(1).single();
+    // Correct table names
+    const { data: business } = await supabase.from('businesses').select('*').limit(1).single();
+    const { data: agent } = await supabase.from('agents').select('*').eq('is_active', true).limit(1).single();
     
     session.businessData = business;
     session.agentData = agent;
@@ -243,6 +244,13 @@ function getAIResponse(session, userText) {
   const amountHindi = session.customerData?.amountHindi || 'aapka payment';
   
   if (!session.lastIntent) session.lastIntent = 'none';
+
+  // FEATURE 5: TONE ANALYSIS (SENTIMENT)
+  const angryWords = ['badtameez', 'gali', 'police', 'complaint', 'pareshan', 'phone mat kar', 'haram', 'sharam', 'नहीं करूँगा', 'परेशान', 'शिकायत'];
+  if (angryWords.some(w => lower.includes(w))) {
+    session.lastIntent = 'angry_customer';
+    return `Maafi chahta hoon ji, mera maqsad aapko pareshan karna nahi tha. Main bas payment ki yaad dila raha tha. Kab tak baat kar sakte hain hum?`;
+  }
 
   // 1. DATE DETECTED
   const dateWords = ['kal', 'parson', 'din mein', 'hafte', 'week', 'mahine', 'tarikh', 'kar dunga', 'ho jayega', 'कल', 'परसों', 'तारीख', 'कर दूंगा', 'हो जाएगा'];
