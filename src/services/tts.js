@@ -7,9 +7,12 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 /**
  * Generates speech via Sarvam AI and converts to requested format (ALAW or MULAW).
  */
-async function generateTTS(text, encoding = 'alaw') {
+/**
+ * Generates speech via Sarvam AI in MP3 format.
+ */
+async function generateTTS(text) {
   try {
-    console.log(`[Sarvam TTS] Generating WAV with model: bulbul:v3 for ${encoding.toUpperCase()}`);
+    console.log(`[Sarvam TTS] Generating MP3 with model: bulbul:v3`);
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
       method: 'POST',
       headers: {
@@ -24,7 +27,7 @@ async function generateTTS(text, encoding = 'alaw') {
         pace: 1.1,
         speech_sample_rate: 16000,
         enable_preprocessing: true,
-        audio_format: 'wav'
+        audio_format: 'mp3' // Changed to mp3 for maximum compatibility
       })
     });
 
@@ -34,38 +37,8 @@ async function generateTTS(text, encoding = 'alaw') {
     }
 
     const data = await response.json();
-    const wavBuffer = Buffer.from(data.audios[0], 'base64');
-
-    const id = Date.now();
-    const tmpWav = path.join(os.tmpdir(), `tts_${id}.wav`);
-    const tmpOutput = path.join(os.tmpdir(), `tts_${id}.${encoding}`);
-
-    fs.writeFileSync(tmpWav, wavBuffer);
-
-    // Dynamic Format: MULAW or ALAW, 8000Hz, Mono
-    const ffmpegCodec = encoding === 'mulaw' ? 'pcm_mulaw' : 'pcm_alaw';
-    const ffmpegFormat = encoding === 'mulaw' ? 'mulaw' : 'alaw';
-
-    const result = spawnSync(ffmpeg.path, [
-      '-i', tmpWav,
-      '-ar', '8000',
-      '-ac', '1',
-      '-acodec', ffmpegCodec,
-      '-f', ffmpegFormat,
-      tmpOutput,
-      '-y'
-    ], { stdio: 'pipe' });
-
-    if (result.status !== 0) {
-      console.error('[FFmpeg Error]', result.stderr?.toString().slice(-200));
-      return null;
-    }
-
-    const audioBuffer = fs.readFileSync(tmpOutput);
-    console.log(`[TTS] ${encoding.toUpperCase()} ready:`, audioBuffer.length, 'bytes');
-
-    try { fs.unlinkSync(tmpWav); } catch {}
-    try { fs.unlinkSync(tmpOutput); } catch {}
+    const audioBuffer = Buffer.from(data.audios[0], 'base64');
+    console.log(`[TTS] MP3 ready:`, audioBuffer.length, 'bytes');
 
     return audioBuffer;
 
