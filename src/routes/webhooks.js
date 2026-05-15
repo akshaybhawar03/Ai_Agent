@@ -107,8 +107,9 @@ router.post('/gather', async (req, res) => {
     const ttsUrl = getTtsUrl(result.response, sessionId);
     if (ttsUrl) {
       response.play(ttsUrl);
+    } else {
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     }
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
       response.hangup();
