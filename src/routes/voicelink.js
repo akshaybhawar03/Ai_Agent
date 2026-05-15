@@ -285,99 +285,112 @@ function getAIResponse(session, userText) {
   const lower = userText.toLowerCase().trim();
   const customerName = session.customerData?.customer_name || 'ji';
   const amountHindi = session.customerData?.amountHindi || 'aapka payment';
+  
+  // Track last intent to avoid repeating exact same phrase
+  if (!session.lastIntent) session.lastIntent = 'none';
 
-  // DATE DETECTED - end call
-  const dateWords = ['kal', 'parson', 'din mein', 'din me', 'hafte',
-    'week', 'mahine', 'tarikh', 'kar dunga', 'kar dungi',
-    'kar deta', 'kar deti', 'ho jayega', 'ho jayegi',
-    'do din', 'teen din', 'char din', 'paanch din',
-    'somwar', 'mangal', 'budh', 'shukra', 'shanivaar',
-    'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-    'saturday', 'sunday', 'tarikh ko', 'tak kar',
-    'कल', 'परसों', 'दिन में', 'हफ्ते', 'महीने', 'तारीख', 
-    'कर दूंगा', 'कर दूंगी', 'हो जाएगा', 'हो जाएगी', 'दो दिन',
-    'सोमवार', 'मंगलवार', 'बुधवार', 'शुक्रवार', 'शनिवार', 'रविवार'];
+  // 1. DATE DETECTED - Commitment found
+  const dateWords = ['kal', 'parson', 'din mein', 'din me', 'hafte', 'week', 'mahine', 'tarikh', 
+    'kar dunga', 'kar dungi', 'kar deta', 'kar deti', 'ho jayega', 'ho jayegi', 'do din', 'teen din', 
+    'char din', 'paanch din', 'somwar', 'mangal', 'budh', 'shukra', 'shanivaar', 'monday', 'tuesday', 
+    'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'tarikh ko', 'tak kar',
+    'कल', 'परसों', 'दिन में', 'हफ्ते', 'महीने', 'तारीख', 'कर दूंगा', 'कर दूंगी', 'हो जाएगा', 'हो जाएगी', 
+    'दो दिन', 'सोमवार', 'मंगलवार', 'बुधवार', 'शुक्रवार', 'शनिवार', 'रविवार', 'पक्का', 'pakka'];
   
   if (dateWords.some(w => lower.includes(w))) {
     session.callEnded = true;
+    session.lastIntent = 'date_fixed';
     setTimeout(() => session.ws?.close(), 8000);
     const res = `Bilkul ji! Note kar liya. Dhanyawad ${customerName} ji, namaskar!`;
     session.transcript.push({ role: 'agent', text: res });
     return res;
   }
 
-  // PAID ALREADY
-  if (['kar di', 'ho gayi', 'de di', 'paid', 'transfer', 
-       'bhej di', 'pay kar', 'payment ki',
-       'कर दी', 'हो गई', 'दे दी', 'पेमेंट कर', 'भेज दी'].some(w => lower.includes(w))) {
-    session.callEnded = true;
-    setTimeout(() => session.ws?.close(), 3000);
-    const res = `Bahut achha ji! Record update kar liya. Dhanyawad, namaskar!`;
+  // 2. AMOUNT QUERY - Customer asks "How much?"
+  const amountWords = ['kitna', 'paisa', 'amount', 'kitne', 'payment kitni', 'paise kitne',
+    'कितना', 'कितने', 'पैसे', 'अमाउंट', 'पेमेंट कितनी'];
+  
+  if (amountWords.some(w => lower.includes(w))) {
+    session.lastIntent = 'amount_query';
+    const res = `Ji, aapka total ${amountHindi} banta hai. Bataiye kab tak kar rahe hain?`;
     session.transcript.push({ role: 'agent', text: res });
     return res;
   }
 
-  // WRONG NUMBER
+  // 3. REPEAT / CLARIFY - Customer asks "What?" or "Who?"
+  const repeatWords = ['kya', 'kaun', 'who', 'suna nahi', 'boliye', 'phir se', 'kya bola', 'what',
+    'क्या', 'कौन', 'सुना नहीं', 'फिर से', 'क्या बोला', 'बोलिए'];
+  
+  if (repeatWords.some(w => lower.includes(w))) {
+    const agentName = session.agentData?.agent_name || 'Raj';
+    const bizName = session.businessData?.business_name || 'CollectAI';
+    
+    let res;
+    if (session.lastIntent === 'intro') {
+      res = `Ji, main ${agentName} bol raha hoon ${bizName} se. Aapke payment ke liye phone kiya tha.`;
+    } else {
+      res = `Ji, main keh raha tha ki aapka ${amountHindi} pending hai. Kab tak payment ho sakegi?`;
+    }
+    session.lastIntent = 'clarification';
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // 4. PAID ALREADY
+  if (['kar di', 'ho gayi', 'de di', 'paid', 'transfer', 'bhej di', 'pay kar', 'payment ki',
+       'कर दी', 'हो गई', 'दे दी', 'पेमेंट कर', 'भेज दी'].some(w => lower.includes(w))) {
+    session.callEnded = true;
+    session.lastIntent = 'already_paid';
+    setTimeout(() => session.ws?.close(), 3000);
+    const res = `Bahut achha ji! Main record update kar deta hoon. Dhanyawad, namaskar!`;
+    session.transcript.push({ role: 'agent', text: res });
+    return res;
+  }
+
+  // 5. WRONG NUMBER
   if (['galat', 'wrong', 'koi nahi', 'yahan nahi', 'pata nahi',
        'गलत', 'रॉन्ग', 'कोई नहीं', 'यहाँ नहीं', 'पता नहीं'].some(w => lower.includes(w))) {
     session.callEnded = true;
+    session.lastIntent = 'wrong_number';
     setTimeout(() => session.ws?.close(), 2000);
-    const res = `Maafi ji, disturb kiya. Namaskar!`;
+    const res = `Maafi chahta hoon ji, shayad galat number lag gaya. Namaskar!`;
     session.transcript.push({ role: 'agent', text: res });
     return res;
   }
 
-  // NO MONEY
-  if (['nahi hai', 'paisa nahi', 'abhi nahi', 'funds nahi',
-       'problem hai', 'mushkil hai',
-       'नहीं है', 'पैसा नहीं', 'अभी नहीं', 'प्रॉब्लम', 'मुश्किल'].some(w => lower.includes(w))) {
-    const res = `Koi baat nahi ji. Aadha abhi de do, baaki baad mein. Kab tak ho sakta hai?`;
-    session.transcript.push({ role: 'agent', text: res });
-    return res;
-  }
-
-  // BUSY
-  if (['busy', 'baad mein', 'baad me', 'abhi nahi', 'meeting', 
-       'kaam', 'baad',
+  // 6. BUSY / CALL BACK
+  if (['busy', 'baad mein', 'baad me', 'abhi nahi', 'meeting', 'kaam', 'baad',
        'बिजी', 'बाद में', 'अभी नहीं', 'मीटिंग', 'काम'].some(w => lower.includes(w))) {
-    const res = `Theek hai ji. Kal kaunsa time theek rahega?`;
+    session.lastIntent = 'busy';
+    const res = `Theek hai ji, abhi busy hain toh main kal phone karun? Kaunsa time theek rahega?`;
     session.transcript.push({ role: 'agent', text: res });
     return res;
   }
 
-  // ANGRY
-  if (['nahi karunga', 'nahi karungi', 'mat karo', 'pareshan', 
-       'tang', 'legal', 'police', 'complaint',
-       'नहीं करूँगा', 'नहीं करुँगी', 'मत करो', 'परेशान', 'तंग'].some(w => lower.includes(w))) {
-    const res = `Samajh sakta hoon ji. Kal baat karte hain. Namaskar!`;
-    session.callEnded = true;
-    setTimeout(() => session.ws?.close(), 3000);
-    session.transcript.push({ role: 'agent', text: res });
-    return res;
-  }
-
-  // YES / HAAN
-  if (['haan', 'ha ', 'haa', 'yes', 'bilkul', 'zaroor', 
-       'theek', 'okay', 'ok', 'ji',
+  // 7. YES / HAAN / AFFIRMATIVE
+  if (['haan', 'ha ', 'haa', 'yes', 'bilkul', 'zaroor', 'theek', 'okay', 'ok', 'ji',
        'हाँ', 'हा', 'यस', 'बिलकुल', 'ज़ुरूर', 'ठीक', 'ओके', 'जी'].some(w => lower.includes(w)) 
        && lower.length < 15) {
-    const res = `Toh kaunsi date pakki karein? Kal ya parson?`;
+    
+    let res;
+    if (session.lastIntent === 'date_ask') {
+      res = `Theek hai, toh kal ki date pakki samjhu main?`;
+    } else {
+      res = `Ji, toh bataiye kab tak payment kar denge? Kal ya parson?`;
+    }
+    session.lastIntent = 'date_ask';
     session.transcript.push({ role: 'agent', text: res });
     return res;
   }
 
-  // WHO ARE YOU
-  if (['kaun', 'who', 'kya', 'kahan se', 'company',
-       'कौन', 'क्या', 'कहाँ से', 'कंपनी'].some(w => lower.includes(w))) {
-    const agentName = session.agentData?.agent_name || 'Raj';
-    const bizName = session.businessData?.business_name || 'humari company';
-    const res = `Main ${agentName} hoon, ${bizName} se. Aapka ${amountHindi} pending hai ji.`;
-    session.transcript.push({ role: 'agent', text: res });
-    return res;
+  // 8. DEFAULT FALLBACK
+  let res;
+  if (session.lastIntent === 'default') {
+    res = `Ji, aapki payment kafi time se pending hai. Ek confirm date bata dijiye taaki main note kar sakun.`;
+  } else {
+    res = `Theek hai ji, toh kab tak payment ho sakegi? Ek date bata dijiye.`;
   }
-
-  // DEFAULT - ask for date
-  const res = `Theek hai ji, toh kab tak payment ho sakegi? Ek date bata dijiye.`;
+  session.lastIntent = 'default';
   session.transcript.push({ role: 'agent', text: res });
   return res;
 }
