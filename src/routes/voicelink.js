@@ -252,7 +252,7 @@ async function getAIResponse(session, userText) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'sarvam-m',
+        model: 'sarvam-2-small', // Using faster model
         messages: session.messages,
         max_tokens: 60,
         temperature: 0.1,
@@ -267,13 +267,23 @@ async function getAIResponse(session, userText) {
     }
 
     const data = await response.json();
-    const aiText = data.choices[0].message.content;
+    const rawText = data.choices[0].message.content;
     
-    session.messages.push({ role: 'assistant', content: aiText });
-    session.transcript.push({ role: 'agent', text: aiText });
+    // Fix 1: Strip thinking tags
+    let aiText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     
-    console.log('[Sarvam AI Response]', aiText);
-    return aiText;
+    console.log('[AI Raw Response]', rawText.substring(0, 100));
+    console.log('[AI Clean Response]', aiText);
+
+    // Fix 3: Truncate very long responses for telephony stability
+    const finalText = aiText.length > 150 
+      ? aiText.substring(0, aiText.lastIndexOf(' ', 150)) + '.'
+      : aiText;
+    
+    session.messages.push({ role: 'assistant', content: finalText });
+    session.transcript.push({ role: 'agent', text: finalText });
+    
+    return finalText;
   } catch (err) {
     console.error('[Sarvam LLM Fetch Error]', err.message);
     return null;
