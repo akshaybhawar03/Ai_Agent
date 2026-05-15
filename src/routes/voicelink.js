@@ -293,7 +293,10 @@ function getAIResponse(session, userText) {
     'do din', 'teen din', 'char din', 'paanch din',
     'somwar', 'mangal', 'budh', 'shukra', 'shanivaar',
     'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-    'saturday', 'sunday', 'tarikh ko', 'tak kar'];
+    'saturday', 'sunday', 'tarikh ko', 'tak kar',
+    'कल', 'परसों', 'दिन में', 'हफ्ते', 'महीने', 'तारीख', 
+    'कर दूंगा', 'कर दूंगी', 'हो जाएगा', 'हो जाएगी', 'दो दिन',
+    'सोमवार', 'मंगलवार', 'बुधवार', 'शुक्रवार', 'शनिवार', 'रविवार'];
   
   if (dateWords.some(w => lower.includes(w))) {
     session.callEnded = true;
@@ -305,7 +308,8 @@ function getAIResponse(session, userText) {
 
   // PAID ALREADY
   if (['kar di', 'ho gayi', 'de di', 'paid', 'transfer', 
-       'bhej di', 'pay kar', 'payment ki'].some(w => lower.includes(w))) {
+       'bhej di', 'pay kar', 'payment ki',
+       'कर दी', 'हो गई', 'दे दी', 'पेमेंट कर', 'भेज दी'].some(w => lower.includes(w))) {
     session.callEnded = true;
     setTimeout(() => session.ws?.close(), 3000);
     const res = `Bahut achha ji! Record update kar liya. Dhanyawad, namaskar!`;
@@ -314,8 +318,8 @@ function getAIResponse(session, userText) {
   }
 
   // WRONG NUMBER
-  if (['galat', 'wrong', 'koi nahi', 'yahan nahi', 
-       'pata nahi'].some(w => lower.includes(w))) {
+  if (['galat', 'wrong', 'koi nahi', 'yahan nahi', 'pata nahi',
+       'गलत', 'रॉन्ग', 'कोई नहीं', 'यहाँ नहीं', 'पता नहीं'].some(w => lower.includes(w))) {
     session.callEnded = true;
     setTimeout(() => session.ws?.close(), 2000);
     const res = `Maafi ji, disturb kiya. Namaskar!`;
@@ -325,15 +329,17 @@ function getAIResponse(session, userText) {
 
   // NO MONEY
   if (['nahi hai', 'paisa nahi', 'abhi nahi', 'funds nahi',
-       'problem hai', 'mushkil hai'].some(w => lower.includes(w))) {
+       'problem hai', 'mushkil hai',
+       'नहीं है', 'पैसा नहीं', 'अभी नहीं', 'प्रॉब्लम', 'मुश्किल'].some(w => lower.includes(w))) {
     const res = `Koi baat nahi ji. Aadha abhi de do, baaki baad mein. Kab tak ho sakta hai?`;
     session.transcript.push({ role: 'agent', text: res });
     return res;
   }
 
   // BUSY
-  if (['busy', 'baad mein', 'abhi nahi', 'meeting', 
-       'kaam', 'baad'].some(w => lower.includes(w))) {
+  if (['busy', 'baad mein', 'baad me', 'abhi nahi', 'meeting', 
+       'kaam', 'baad',
+       'बिजी', 'बाद में', 'अभी नहीं', 'मीटिंग', 'काम'].some(w => lower.includes(w))) {
     const res = `Theek hai ji. Kal kaunsa time theek rahega?`;
     session.transcript.push({ role: 'agent', text: res });
     return res;
@@ -341,7 +347,8 @@ function getAIResponse(session, userText) {
 
   // ANGRY
   if (['nahi karunga', 'nahi karungi', 'mat karo', 'pareshan', 
-       'tang', 'legal', 'police', 'complaint'].some(w => lower.includes(w))) {
+       'tang', 'legal', 'police', 'complaint',
+       'नहीं करूँगा', 'नहीं करुँगी', 'मत करो', 'परेशान', 'तंग'].some(w => lower.includes(w))) {
     const res = `Samajh sakta hoon ji. Kal baat karte hain. Namaskar!`;
     session.callEnded = true;
     setTimeout(() => session.ws?.close(), 3000);
@@ -351,7 +358,8 @@ function getAIResponse(session, userText) {
 
   // YES / HAAN
   if (['haan', 'ha ', 'haa', 'yes', 'bilkul', 'zaroor', 
-       'theek', 'okay', 'ok', 'ji'].some(w => lower.includes(w)) 
+       'theek', 'okay', 'ok', 'ji',
+       'हाँ', 'हा', 'यस', 'बिलकुल', 'ज़ुरूर', 'ठीक', 'ओके', 'जी'].some(w => lower.includes(w)) 
        && lower.length < 15) {
     const res = `Toh kaunsi date pakki karein? Kal ya parson?`;
     session.transcript.push({ role: 'agent', text: res });
@@ -359,7 +367,8 @@ function getAIResponse(session, userText) {
   }
 
   // WHO ARE YOU
-  if (['kaun', 'who', 'kya', 'kahan se', 'company'].some(w => lower.includes(w))) {
+  if (['kaun', 'who', 'kya', 'kahan se', 'company',
+       'कौन', 'क्या', 'कहाँ से', 'कंपनी'].some(w => lower.includes(w))) {
     const agentName = session.agentData?.agent_name || 'Raj';
     const bizName = session.businessData?.business_name || 'humari company';
     const res = `Main ${agentName} hoon, ${bizName} se. Aapka ${amountHindi} pending hai ji.`;
