@@ -317,16 +317,19 @@ function getAIResponse(session, userText) {
     return res;
   }
 
-  // 3. REPEAT / CLARIFY - Customer asks "What?" or "Who?"
+  // 3. REPEAT / CLARIFY / IDENTITY - Customer asks "What?", "Who?", or "Whose payment?"
   const repeatWords = ['kya', 'kaun', 'who', 'suna nahi', 'boliye', 'phir se', 'kya bola', 'what',
-    'क्या', 'कौन', 'सुना नहीं', 'फिर से', 'क्या बोला', 'बोलिए'];
+    'kiski', 'kisne', 'kahan se', 'company', 'identity',
+    'क्या', 'कौन', 'सुना नहीं', 'फिर से', 'क्या बोला', 'बोलिए', 'किसकी', 'किसने', 'कहाँ से', 'कंपनी'];
   
   if (repeatWords.some(w => lower.includes(w))) {
     const agentName = session.agentData?.agent_name || 'Raj';
     const bizName = session.businessData?.business_name || 'CollectAI';
     
     let res;
-    if (session.lastIntent === 'intro') {
+    if (lower.includes('kiski') || lower.includes('company') || lower.includes('किसकी') || lower.includes('कंपनी')) {
+      res = `Ji, ye ${bizName} ki taraf se call hai. Aapka ${amountHindi} pending hai, wahi clear karna hai.`;
+    } else if (session.lastIntent === 'intro') {
       res = `Ji, main ${agentName} bol raha hoon ${bizName} se. Aapke payment ke liye phone kiya tha.`;
     } else {
       res = `Ji, main keh raha tha ki aapka ${amountHindi} pending hai. Kab tak payment ho sakegi?`;
