@@ -41,7 +41,15 @@ router.get('/logs', async (req, res) => {
 
     let query = supabaseAdmin
       .from('call_logs')
-      .select('*', { count: 'exact' })
+      .select(`
+        *,
+        customers (
+          id,
+          customer_name,
+          phone,
+          amount_due
+        )
+      `, { count: 'exact' })
       .eq('business_id', req.businessId)
       .order('called_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -63,11 +71,31 @@ router.get('/logs', async (req, res) => {
     }
 
     const { data, error, count } = await query;
+    
+    if (error) {
+      console.error('[Call Logs API Error]', error);
+      return res.status(500).json({ error: error.message });
+    }
 
-    if (error) throw error;
+    console.log('[Call Logs] Fetched:', data?.length, 'Total Count:', count);
+    if (data?.length > 0) {
+      console.log('[Call Log 0]', JSON.stringify(data[0], null, 2));
+    }
+
+    // Defensive flattening to handle both Object and Array responses from Supabase
+    const flattenedLogs = data.map(log => {
+      const cust = Array.isArray(log.customers) ? log.customers[0] : log.customers;
+      return {
+        ...log,
+        customer_name: cust?.customer_name || '—',
+        customer_phone: cust?.phone || '—',
+        customer_amount: cust?.amount_due || 0,
+        ai_summary: log.ai_summary || '—'
+      };
+    });
 
     res.json({
-      logs: data,
+      logs: flattenedLogs,
       total: count,
       page: parseInt(page),
       totalPages: Math.ceil(count / limit)

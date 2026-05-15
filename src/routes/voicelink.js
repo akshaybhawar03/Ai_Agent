@@ -138,7 +138,7 @@ function setupVoiceLinkWebSocket(wss) {
             session.deepgramLive.send(Buffer.from(message.media.payload, 'base64'));
           }
         } else if (message.event === 'stop') {
-          await handleCallEnd(session);
+          await saveCallLog(session);
         }
       } catch (e) {}
     });
@@ -146,7 +146,7 @@ function setupVoiceLinkWebSocket(wss) {
     ws.on('close', async () => {
       console.log('[VoiceLink WS] Session Closed:', sessionId);
       if (session.deepgramLive) session.deepgramLive.finish();
-      await handleCallEnd(session);
+      await saveCallLog(session);
       activeSessions.delete(sessionId);
     });
   });
@@ -199,10 +199,11 @@ async function loadSessionData(session, customerId) {
       session.customerData = customer;
     }
     
-    // Correct table names
-    const { data: business } = await supabase.from('businesses').select('*').limit(1).single();
+    // Correct table names - targeting Ak Shop specifically
+    const { data: business } = await supabase.from('businesses').select('*').eq('id', '1f14522e-739f-4ddc-85d0-baa82b5abe3b').single();
     const { data: agent } = await supabase.from('agents').select('*').eq('is_active', true).limit(1).single();
     
+    console.log('[Business Loaded]', business?.business_name);
     session.businessData = business;
     session.agentData = agent;
 
@@ -217,25 +218,64 @@ async function generateGreeting(session) {
   return `Namaste! Main ${session.agentData.agent_name} bol ra${session.agentData.gender === 'male' ? 'ha' : 'hi'} hoon, ${session.businessData?.business_name || 'CollectAI'} se. Kya main ${session.customerData?.customer_name} ji se baat kar sakta hoon?`;
 }
 
-async function handleCallEnd(session) {
-  if (session.transcript.length === 0 || !session.customerData) return;
-  const fullTranscript = session.transcript.map(t => `${t.role}: ${t.text}`).join('\n');
+async function saveCallLog(session) {
+  if (!session.customerData?.id || session.callLogSaved) return;
+  session.callLogSaved = true;
+  
   try {
-    const outcome = await detectOutcome(fullTranscript);
+    const fullTranscript = session.transcript
+      .map(t => `${t.role === 'user' ? 'customer' : 'agent'}: ${t.text}`)
+      .join('\n');
+
+    // Detect outcome from transcript
+    let outcome = 'no_answer';
+    let aiSummary = 'Grahak ne koi jawab nahin diya';
+    
+    const transcriptLower = fullTranscript.toLowerCase();
+    if (transcriptLower.includes('note kar li') || 
+        transcriptLower.includes('bilkul ji') ||
+        transcriptLower.includes('kal') ||
+        transcriptLower.includes('parson')) {
+      outcome = 'promise_given';
+      aiSummary = 'Grahak ne payment karne ka vaada kiya';
+    } else if (transcriptLower.includes('kar di') || 
+               transcriptLower.includes('ho gayi') ||
+               transcriptLower.includes('paid')) {
+      outcome = 'paid';
+      aiSummary = 'Grahak ne bataya payment ho gayi hai';
+    } else if (transcriptLower.includes('namaskar') || 
+               session.transcript.length > 2) {
+      outcome = 'promise_given';
+      aiSummary = 'Grahak se baat hui, follow up required';
+    }
+
+    // Insert call log
     await supabase.from('call_logs').insert({
       business_id: session.businessData?.id,
       customer_id: session.customerData.id,
-      transcript: fullTranscript,
-      ai_summary: outcome.summary,
-      outcome: outcome.outcome,
+      twilio_call_sid: session.streamSid,
+      transcript: fullTranscript || 'No transcript',
+      ai_summary: aiSummary,
+      outcome: outcome,
       status: 'completed',
+      duration: 0, // Will be updated by Twilio status callback
       called_at: new Date().toISOString()
     });
-    await supabase.from('customers').update({ 
-      status: outcome.outcome, 
-      last_call_date: new Date() 
+
+    // Update customer
+    await supabase.from('customers').update({
+      status: outcome === 'promise_given' ? 'Promise Given' :
+              outcome === 'paid' ? 'Paid' : 'No Answer',
+      last_call_date: new Date().toISOString(),
+      call_notes: aiSummary
     }).eq('id', session.customerData.id);
-  } catch (err) {}
+
+    console.log('[Call Log Saved] Customer:', 
+      session.customerData.customer_name, 'Outcome:', outcome);
+      
+  } catch (err) {
+    console.error('[Save Call Log Error]', err.message);
+  }
 }
 
 function getAIResponse(session, userText) {
