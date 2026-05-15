@@ -40,7 +40,8 @@ function setupVoiceLinkWebSocket(wss) {
       agentData: null,
       businessData: null,
       isGreetingSent: false,
-      deepgramLive: null
+      deepgramLive: null,
+      isSpeaking: false
     };
     sessions.set(sessionId, session);
 
@@ -50,7 +51,9 @@ function setupVoiceLinkWebSocket(wss) {
         language: 'hi',
         encoding: 'mulaw',        // Twilio uses MULAW
         sample_rate: 8000,
-        interim_results: false,
+        interim_results: true,
+        utterance_end_ms: 1000,
+        vad_events: true,
         punctuate: true
       });
 
@@ -60,15 +63,6 @@ function setupVoiceLinkWebSocket(wss) {
         const transcript = data.channel?.alternatives?.[0]?.transcript;
         if (!transcript?.trim()) return;
         
-        console.log('[VoiceLink STT]', session.id, transcript);
-        session.transcript.push({ role: 'customer', text: transcript });
-
-        try {
-          const lowerTranscript = transcript.toLowerCase().trim();
-
-          // Voicemail / IVR Detection
-          const voicemailPhrases = [
-            'please stay on the line', 'not available', 'leave a message', 'after the tone',
             'voicemail', 'please leave', 'press 1', 'press 2', 'for english', 'hindi ke liye',
             'our office hours', 'thank you for calling', 'all our representatives', 'your call is important'
           ];
@@ -173,6 +167,9 @@ async function sendAudio(session, text) {
     const audioBuffer = await generateTTS(text, encoding);
     if (!audioBuffer || session.ws.readyState !== 1) return;
 
+    // Set speaking flag before sending
+    session.isSpeaking = true;
+
     let payload;
     if (isTwilio) {
       // Twilio format
@@ -197,8 +194,16 @@ async function sendAudio(session, text) {
     console.log('[Audio Sent]', isTwilio ? 'Twilio' : 'VoiceLink', 
       'size:', audioBuffer.length);
 
+    // After roughly the duration of audio, set speaking to false
+    // 8000Hz, 1 byte per sample = 8000 bytes/sec
+    const durationMs = (audioBuffer.length / 8) + 500; 
+    setTimeout(() => {
+      session.isSpeaking = false;
+    }, durationMs);
+
   } catch (err) {
     console.error('[Send Audio Error]', err.message);
+    session.isSpeaking = false;
   }
 }
 
