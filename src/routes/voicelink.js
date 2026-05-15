@@ -300,7 +300,7 @@ function getAIResponse(session, userText) {
   
   if (dateWords.some(w => lower.includes(w))) {
     session.callEnded = true;
-    setTimeout(() => session.ws?.close(), 4000);
+    setTimeout(() => session.ws?.close(), 8000);
     const res = `Bilkul ji! Note kar liya. Dhanyawad ${customerName} ji, namaskar!`;
     session.transcript.push({ role: 'agent', text: res });
     return res;
