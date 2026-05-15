@@ -50,14 +50,11 @@ router.post('/voice', async (req, res) => {
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
     // Play high-quality Azure TTS
-    const ttsUrl = getTtsUrl(result.response, sessionId);
-    if (ttsUrl) {
-      // Use Play with a specific timeout or fallback
-      response.play(ttsUrl);
-    } else {
-      // Direct fallback if no URL
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
-    }
+    // Use Twilio's Native Polly Neural Voice (Instant & Reliable)
+    response.say({ 
+      voice: 'Polly.Aditi-Neural', 
+      language: 'hi-IN' 
+    }, result.response);
     
     const gather = response.gather({
       input: 'speech',
@@ -104,12 +101,11 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
-    const ttsUrl = getTtsUrl(result.response, sessionId);
-    if (ttsUrl) {
-      response.play(ttsUrl);
-    } else {
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
-    }
+    // Use Twilio's Native Polly Neural Voice (Instant & Reliable)
+    response.say({ 
+      voice: 'Polly.Aditi-Neural', 
+      language: 'hi-IN' 
+    }, result.response);
 
     if (result.shouldEnd) {
       response.hangup();
