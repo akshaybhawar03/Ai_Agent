@@ -13,6 +13,7 @@ const callRoutes = require('./routes/calls');
 const statsRoutes = require('./routes/stats');
 const webhookRoutes = require('./routes/webhooks');
 const { router: voicelinkRouter, setupVoiceLinkWebSocket } = require('./routes/voicelink');
+const twilioRouter = require('./routes/twilio');
 
 // Middleware
 const authMiddleware = require('./middleware/auth');
@@ -84,6 +85,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISO
 // Public routes
 app.use('/auth', authRoutes);
 app.use('/webhook/twilio', webhookRoutes);
+app.use('/twilio', twilioRouter);
 app.use('/voicelink', voicelinkRouter);
 
 // Protected routes

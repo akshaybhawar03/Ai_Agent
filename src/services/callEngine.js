@@ -94,21 +94,36 @@ async function initiateCall(customerId, businessId) {
                               (process.env.VOICELINK_API_KEY || (process.env.VOICELINK_USERNAME && process.env.VOICELINK_PASSWORD));
 
     if (isVoiceLinkEnabled) {
-      console.log('[CallEngine] Using VoiceLink for call...');
-      const call = await triggerVoiceLinkCall(customer, business);
+      console.log('[CallEngine] Using Twilio for outbound call (Triggered from VoiceLink branch)...');
+      
+      const twilio = require('twilio');
+      const client = twilio(
+        process.env.TWILIO_ACCOUNT_SID,
+        process.env.TWILIO_AUTH_TOKEN
+      );
+
+      const call = await client.calls.create({
+        to: `+91${customer.phone.replace(/\D/g, '').slice(-10)}`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        url: `${process.env.WEBHOOK_BASE_URL}/twilio/voice?customer_id=${customer.id}`,
+        statusCallback: `${process.env.WEBHOOK_BASE_URL}/twilio/status`,
+        statusCallbackMethod: 'POST'
+      });
+
+      const callId = call.sid;
       
       await supabaseAdmin.from('call_logs').insert({
         business_id: businessId,
         customer_id: customerId,
         customer_name: customer.customer_name,
         customer_phone: customer.phone,
-        twilio_call_sid: call.id || sessionId, // VoiceLink ID as SID
+        twilio_call_sid: callId,
         status: 'initiated',
         outcome: 'in_progress',
         called_at: new Date().toISOString()
       });
 
-      return { callId: call.id, sessionId, status: 'initiated', provider: 'voicelink' };
+      return { callId, sessionId, status: 'initiated', provider: 'twilio-ws' };
     }
 
     // Fallback to Twilio
