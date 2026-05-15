@@ -212,7 +212,9 @@ async function loadSessionData(session, startData, customerId) {
     const combinedPrompt = `${systemPrompt}\n\nENFORCEMENT RULES - IN PRIORITY ORDER:\n1. NEVER ask how customer wants to pay - that is NOT your job\n2. NEVER explain payment methods (online/office/UPI etc)\n3. NEVER ask for account details or order details - you already know them\n4. Your ONLY job: Get a payment DATE from customer\n5. Keep response under 20 words always\n6. If customer says haan/yes - immediately ask for a specific date\n7. If you have a date - say "Dhanyawad, namaskar!" and STOP completely\n8. Speak only Hinglish - NO full English sentences ever`;
 
     session.messages = [{ role: 'system', content: combinedPrompt }];
-    session.customerData.amountHindi = convertToHindi(customer.amount_due);
+    if (session.customerData) {
+      session.customerData.amountHindi = convertToHindi(session.customerData.amount_due || 0);
+    }
     console.log(`[VoiceLink] System prompt set for customer: ${session.customerData?.customer_name || 'Unknown'}`);
     
   } catch (err) {
