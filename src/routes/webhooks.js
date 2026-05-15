@@ -52,11 +52,12 @@ router.post('/voice', async (req, res) => {
     // Play high-quality Azure TTS
     const ttsUrl = getTtsUrl(result.response, sessionId);
     if (ttsUrl) {
+      // Use Play with a specific timeout or fallback
       response.play(ttsUrl);
+    } else {
+      // Direct fallback if no URL
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     }
-    
-    // Fallback native voice
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     
     const gather = response.gather({
       input: 'speech',
@@ -149,7 +150,7 @@ router.get('/tts', async (req, res) => {
     fs.writeFileSync(cachePath, audioBuffer);
     
     res.set({
-      'Content-Type': 'audio/mpeg',
+      'Content-Type': 'audio/mp3',
       'Content-Length': audioBuffer.length
     });
     res.send(audioBuffer);
