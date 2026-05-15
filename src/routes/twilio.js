@@ -9,7 +9,9 @@ router.post('/voice', async (req, res) => {
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://aiagent-production-6d4b.up.railway.app/voicelink/ws?customer_id=${customerId}"/>
+    <Stream url="wss://aiagent-production-6d4b.up.railway.app/voicelink/ws">
+      <Parameter name="customer_id" value="${customerId}"/>
+    </Stream>
   </Connect>
 </Response>`);
 });

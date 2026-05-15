@@ -129,10 +129,11 @@ function setupVoiceLinkWebSocket(wss) {
           session.streamSid = currentSid;
           console.log(`[VoiceLink SID ${sessionId}] Captured: ${session.streamSid}`);
           
-          // Bug 2 Fix: Get customer_id from custom_parameters or URL
-          const customParams = (message.start && message.start.custom_parameters) || {};
+          // Bug 2 Fix: Get customer_id from Twilio custom parameters or URL
+          const customParams = (message.start && (message.start.customParameters || message.start.custom_parameters)) || {};
           const extractedCustomerId = customParams.customer_id || 
-                             new URLSearchParams((session.wsUrl || '').split('?')[1]).get('customer_id');
+                             customParams['customer_id'] ||
+                             new URLSearchParams((session.wsUrl || '').split('?')[1] || '').get('customer_id');
           
           console.log('[VoiceLink] Extracted Customer ID:', extractedCustomerId);
 
@@ -141,7 +142,7 @@ function setupVoiceLinkWebSocket(wss) {
             session.isGreetingSent = true;
             await loadSessionData(session, message.start || {}, extractedCustomerId);
             const greeting = await generateGreeting(session);
-            await sendAudio(session, greeting);
+            if (greeting) await sendAudio(session, greeting);
           }
         }
 
