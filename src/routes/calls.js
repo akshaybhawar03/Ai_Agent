@@ -126,4 +126,52 @@ router.get('/logs/:id', async (req, res) => {
   }
 });
 
+// GET /api/calls/recording/:logId - Proxy Twilio recording for browser playback
+router.get('/recording/:logId', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('call_logs')
+      .select('recording_url')
+      .eq('id', req.params.logId)
+      .eq('business_id', req.businessId)
+      .single();
+
+    if (error || !data?.recording_url) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    // Twilio recordings need .mp3 suffix and Basic auth
+    const recordingUrl = data.recording_url.endsWith('.mp3')
+      ? data.recording_url
+      : data.recording_url + '.mp3';
+
+    const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+    const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+    const authHeader = 'Basic ' + Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
+
+    const response = await fetch(recordingUrl, {
+      headers: { 'Authorization': authHeader }
+    });
+
+    if (!response.ok) {
+      console.error(`[Recording Proxy] Twilio returned ${response.status}`);
+      return res.status(response.status).json({ error: 'Failed to fetch recording from Twilio' });
+    }
+
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Disposition': `inline; filename="recording-${req.params.logId}.mp3"`,
+      'Cache-Control': 'public, max-age=3600'
+    });
+
+    // Stream the response body to the client
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+
+  } catch (error) {
+    console.error('[Recording Proxy Error]', error.message);
+    res.status(500).json({ error: 'Failed to proxy recording' });
+  }
+});
+
 module.exports = router;
