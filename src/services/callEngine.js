@@ -249,8 +249,9 @@ async function postCallUpdate(sessionId, { status, duration, recordingUrl, expli
   const apiKey = session.business.openai_api_key || process.env.OPENAI_API_KEY;
 
   try {
-    // Detect outcome from transcript
-    const outcomeData = await detectOutcome(session.transcript, apiKey);
+    // Detect outcome from transcript (use case aware)
+    const useCase = session.agent?.use_case || 'payment_recovery';
+    const outcomeData = await detectOutcome(session.transcript, apiKey, useCase);
 
     // Update customer record
     const { data: currentCustomer } = await supabaseAdmin

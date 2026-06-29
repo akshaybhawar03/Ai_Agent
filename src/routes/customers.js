@@ -49,10 +49,10 @@ router.get('/', async (req, res) => {
 // POST /api/customers - Add a customer
 router.post('/', async (req, res) => {
   try {
-    const { customer_name, phone, amount_due, days_pending, items_given, status } = req.body;
+    const { customer_name, phone, amount_due, days_pending, items_given, status, custom_fields } = req.body;
 
-    if (!customer_name || !phone || !amount_due) {
-      return res.status(400).json({ error: 'Name, phone, and amount are required' });
+    if (!customer_name || !phone) {
+      return res.status(400).json({ error: 'Name and phone are required' });
     }
 
     const { data, error } = await supabaseAdmin
@@ -61,10 +61,11 @@ router.post('/', async (req, res) => {
         business_id: req.businessId,
         customer_name,
         phone,
-        amount_due: parseFloat(amount_due),
+        amount_due: amount_due ? parseFloat(amount_due) : 0,
         days_pending: parseInt(days_pending) || 0,
         items_given: items_given || '',
-        status: status || 'pending'
+        status: status || 'pending',
+        custom_fields: custom_fields || {}
       })
       .select()
       .single();
@@ -82,7 +83,8 @@ router.put('/:id', async (req, res) => {
   try {
     const allowedFields = [
       'customer_name', 'phone', 'amount_due', 'days_pending',
-      'items_given', 'status', 'payment_promise_date', 'call_notes'
+      'items_given', 'status', 'payment_promise_date', 'call_notes',
+      'custom_fields'
     ];
 
     const updates = {};
