@@ -60,10 +60,10 @@ router.post('/voice', async (req, res) => {
     const gather = response.gather({
       input: 'speech',
       language: 'hi-IN',
-      speechTimeout: 'auto',
+      speechTimeout: '1',   // 1s silence = end of speech (was 'auto' = 2-3s wait)
       action: `/webhook/twilio/gather?sessionId=${sessionId}`,
       method: 'POST',
-      timeout: 5
+      timeout: 3            // 3s max wait for user to start speaking (was 5s)
     });
 
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Aap sun rahe hain?');
@@ -115,10 +115,10 @@ router.post('/gather', async (req, res) => {
       response.gather({
         input: 'speech',
         language: 'hi-IN',
-        speechTimeout: 'auto',
+        speechTimeout: '1',   // 1s silence = end of speech (was 'auto')
         action: `/webhook/twilio/gather?sessionId=${sessionId}`,
         method: 'POST',
-        timeout: 5
+        timeout: 3            // 3s max wait (was 5s)
       });
       response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Aap sun rahe hain?');
     }

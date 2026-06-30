@@ -208,12 +208,14 @@ async function processConversation(sessionId, userSpeech) {
   const apiKey = session.business.groq_api_key || process.env.GROQ_API_KEY || session.business.openai_api_key || process.env.OPENAI_API_KEY;
   const client = getOpenAIClient(apiKey);
 
-  // Get AI response
+  // Get AI response — use fastest model for minimum latency
+  // llama-3.1-8b-instant: ~200ms vs llama-3.3-70b-versatile: ~1-2s
+  const fastModel = process.env.GROQ_API_KEY ? 'llama-3.1-8b-instant' : getModelName();
   const response = await client.chat.completions.create({
-    model: process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : getModelName(),
+    model: fastModel,
     messages: session.messages,
-    max_tokens: 100,
-    temperature: 0.7
+    max_tokens: 60,      // 1-2 short sentences max — keeps response fast
+    temperature: 0.3     // lower = more focused, faster generation
   });
 
   const aiMessage = response.choices[0].message.content;
