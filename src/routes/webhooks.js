@@ -49,26 +49,28 @@ router.post('/voice', async (req, res) => {
     const result = await processConversation(sessionId, null);
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
-    // Play high-quality Azure TTS
-    const ttsUrl = getTtsUrl(result.response, sessionId);
-    if (ttsUrl) {
-      response.play(ttsUrl);
-    } else {
-      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
-    }
-    
+    // Build gather — audio MUST be inside gather so Twilio listens after playing
+    const baseUrl = process.env.WEBHOOK_BASE_URL || '';
     const gather = response.gather({
       input: 'speech',
       language: 'hi-IN',
-      speechTimeout: '1',   // 1s silence = end of speech (was 'auto' = 2-3s wait)
-      action: `/webhook/twilio/gather?sessionId=${sessionId}`,
+      speechTimeout: '1',
+      action: `${baseUrl}/webhook/twilio/gather?sessionId=${sessionId}`,
       method: 'POST',
-      timeout: 3            // 3s max wait for user to start speaking (was 5s)
+      timeout: 5
     });
 
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Aap sun rahe hain?');
-    response.redirect(`/webhook/twilio/voice?sessionId=${sessionId}`);
+    // Play TTS INSIDE gather
+    const ttsUrl = getTtsUrl(result.response, sessionId);
+    if (ttsUrl) {
+      gather.play(ttsUrl);
+    } else {
+      gather.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
+    }
 
+    // Fallback if user doesn't respond
+    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Aap sun rahe hain?');
+    response.redirect(`${baseUrl}/webhook/twilio/voice?sessionId=${sessionId}`);
   } catch (error) {
     console.error('Voice webhook error:', error);
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Sorry, error aa gaya.');
@@ -84,6 +86,7 @@ router.post('/gather', async (req, res) => {
   const speechResult = req.body.SpeechResult;
   const VoiceResponse = twilio.twiml.VoiceResponse;
   const response = new VoiceResponse();
+  const baseUrl = process.env.WEBHOOK_BASE_URL || '';
 
   try {
     const session = await getSession(sessionId);
@@ -94,7 +97,7 @@ router.post('/gather', async (req, res) => {
 
     if (!speechResult) {
       response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Main sun nahi paaya. Phir se boliye?');
-      response.redirect(`/webhook/twilio/voice?sessionId=${sessionId}`);
+      response.redirect(`${baseUrl}/webhook/twilio/voice?sessionId=${sessionId}`);
       return res.type('text/xml').send(response.toString());
     }
 
@@ -102,6 +105,7 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
+    // Play AI response (before hangup or before next gather)
     const ttsUrl = getTtsUrl(result.response, sessionId);
     if (ttsUrl) {
       response.play(ttsUrl);
@@ -112,15 +116,18 @@ router.post('/gather', async (req, res) => {
     if (result.shouldEnd) {
       response.hangup();
     } else {
-      response.gather({
+      // Next gather to listen for user reply
+      const nextGather = response.gather({
         input: 'speech',
         language: 'hi-IN',
-        speechTimeout: '1',   // 1s silence = end of speech (was 'auto')
-        action: `/webhook/twilio/gather?sessionId=${sessionId}`,
+        speechTimeout: '1',
+        action: `${baseUrl}/webhook/twilio/gather?sessionId=${sessionId}`,
         method: 'POST',
-        timeout: 3            // 3s max wait (was 5s)
+        timeout: 5
       });
+      // Fallback if no speech detected
       response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Aap sun rahe hain?');
+      response.redirect(`${baseUrl}/webhook/twilio/voice?sessionId=${sessionId}`);
     }
   } catch (error) {
     console.error('Gather webhook error:', error);

@@ -214,7 +214,7 @@ async function processConversation(sessionId, userSpeech) {
   const response = await client.chat.completions.create({
     model: fastModel,
     messages: session.messages,
-    max_tokens: 60,      // 1-2 short sentences max — keeps response fast
+    max_tokens: 80,      // enough for 1-2 complete sentences
     temperature: 0.3     // lower = more focused, faster generation
   });
 
