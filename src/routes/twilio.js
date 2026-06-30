@@ -5,11 +5,15 @@ router.post('/voice', async (req, res) => {
   const customerId = req.query.customer_id;
   console.log(`[Twilio Voice] Routing call to WebSocket for customer: ${customerId}`);
   
+  const wsUrl = (process.env.WEBHOOK_BASE_URL || 'https://aiagent-production-6d4b.up.railway.app')
+    .replace(/^https:\/\//, 'wss://')
+    .replace(/^http:\/\//, 'ws://');
+
   res.set('Content-Type', 'text/xml');
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://aiagent-production-6d4b.up.railway.app/voicelink/ws">
+    <Stream url="${wsUrl}/voicelink/ws">
       <Parameter name="customer_id" value="${customerId}"/>
     </Stream>
   </Connect>
