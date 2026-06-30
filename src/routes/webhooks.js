@@ -49,7 +49,14 @@ router.post('/voice', async (req, res) => {
     const result = await processConversation(sessionId, null);
     console.log(`[Twilio Voice] AI Response: ${result.response}`);
 
-    // Build gather — audio MUST be inside gather so Twilio listens after playing
+    // Play high-quality Azure TTS
+    const ttsUrl = getTtsUrl(result.response, sessionId);
+    if (ttsUrl) {
+      response.play(ttsUrl);
+    } else {
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
+    }
+    
     const gather = response.gather({
       input: 'speech',
       language: 'hi-IN',
@@ -59,17 +66,9 @@ router.post('/voice', async (req, res) => {
       timeout: 5
     });
 
-    // Play TTS INSIDE gather
-    const ttsUrl = getTtsUrl(result.response, sessionId);
-    if (ttsUrl) {
-      gather.play(ttsUrl);
-    } else {
-      gather.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
-    }
-
-    // Fallback if user doesn't respond
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Hello? Aap sun rahe hain?');
     response.redirect(`/webhook/twilio/voice?sessionId=${sessionId}`);
+
   } catch (error) {
     console.error('Voice webhook error:', error);
     response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Sorry, error aa gaya.');
@@ -103,7 +102,6 @@ router.post('/gather', async (req, res) => {
     const result = await processConversation(sessionId, speechResult);
     console.log(`[Twilio Gather] AI Response: ${result.response}`);
 
-    // Play AI response
     const ttsUrl = getTtsUrl(result.response, sessionId);
     if (ttsUrl) {
       response.play(ttsUrl);
@@ -114,7 +112,6 @@ router.post('/gather', async (req, res) => {
     if (result.shouldEnd) {
       response.hangup();
     } else {
-      // Next gather to listen for user reply
       response.gather({
         input: 'speech',
         language: 'hi-IN',
@@ -123,7 +120,6 @@ router.post('/gather', async (req, res) => {
         method: 'POST',
         timeout: 5
       });
-      // Fallback if no speech detected
       response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Aap sun rahe hain?');
     }
   } catch (error) {
