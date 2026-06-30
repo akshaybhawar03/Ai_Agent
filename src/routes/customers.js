@@ -74,6 +74,9 @@ router.post('/', async (req, res) => {
     res.status(201).json(data);
   } catch (error) {
     console.error('Create customer error:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'Customer with this phone number already exists' });
+    }
     res.status(500).json({ error: 'Failed to create customer' });
   }
 });
@@ -106,6 +109,9 @@ router.put('/:id', async (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Update customer error:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'Another customer with this phone number already exists' });
+    }
     res.status(500).json({ error: 'Failed to update customer' });
   }
 });
