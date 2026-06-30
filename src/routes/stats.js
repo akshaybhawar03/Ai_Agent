@@ -12,9 +12,17 @@ router.get('/dashboard', async (req, res) => {
     const recoveredAmount = recoveredData?.reduce((s, c) => s + parseFloat(c.amount_due || 0), 0) || 0;
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const { count: callsToday } = await supabaseAdmin.from('call_logs').select('*', { count: 'exact', head: true }).eq('business_id', bid).gte('called_at', today.toISOString());
-    const { data: recentCalls } = await supabaseAdmin.from('call_logs').select('*').eq('business_id', bid).order('called_at', { ascending: false }).limit(10);
+    const { data: recentCallsRaw } = await supabaseAdmin.from('call_logs').select('*, customers(customer_name, phone)').eq('business_id', bid).order('called_at', { ascending: false }).limit(10);
+    const recentCalls = recentCallsRaw?.map(log => {
+      const cust = Array.isArray(log.customers) ? log.customers[0] : log.customers;
+      return {
+        ...log,
+        customer_name: cust?.customer_name || '—',
+        customer_phone: cust?.phone || '—'
+      };
+    }) || [];
     const { data: schedule } = await supabaseAdmin.from('customers').select('id, customer_name, phone, amount_due, status, call_count_today').eq('business_id', bid).in('status', ['pending', 'callback', 'promised']).lt('call_count_today', 3).order('days_pending', { ascending: false }).limit(10);
-    res.json({ totalCustomers: totalCustomers || 0, pendingAmount, recoveredAmount, callsToday: callsToday || 0, recentCalls: recentCalls || [], schedule: schedule || [] });
+    res.json({ totalCustomers: totalCustomers || 0, pendingAmount, recoveredAmount, callsToday: callsToday || 0, recentCalls, schedule: schedule || [] });
   } catch (error) {
     console.error('Dashboard stats error:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard stats' });

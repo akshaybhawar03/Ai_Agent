@@ -3,6 +3,7 @@
  */
 const express = require('express');
 const { supabaseAdmin } = require('../services/supabase');
+const { USE_CASES } = require('../utils/useCaseTemplates');
 
 const router = express.Router();
 
@@ -30,6 +31,20 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/use-cases - List available use case templates
+router.get('/use-cases', (req, res) => {
+  const useCases = Object.entries(USE_CASES).map(([key, val]) => ({
+    key,
+    label: val.label,
+    description: val.description,
+    icon: val.icon,
+    color: val.color,
+    customerFields: val.customerFields,
+    outcomes: val.outcomes
+  }));
+  res.json(useCases);
+});
+
 // POST /api/agent - Create a new agent
 router.post('/', async (req, res) => {
   try {
@@ -44,6 +59,8 @@ router.post('/', async (req, res) => {
       max_call_duration: req.body.max_call_duration || 180,
       elevenlabs_voice_id: req.body.elevenlabs_voice_id || null,
       custom_intro: req.body.custom_intro || null,
+      use_case: req.body.use_case || 'payment_recovery',
+      custom_prompt: req.body.custom_prompt || null,
       is_active: true
     };
 
@@ -67,7 +84,7 @@ router.put('/:id', async (req, res) => {
     const allowedFields = [
       'agent_name', 'gender', 'language', 'tone', 'calls_per_day',
       'call_times', 'max_call_duration', 'elevenlabs_voice_id',
-      'custom_intro', 'is_active'
+      'custom_intro', 'is_active', 'use_case', 'custom_prompt'
     ];
 
     const updates = {};

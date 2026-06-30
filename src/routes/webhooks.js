@@ -37,7 +37,7 @@ router.post('/voice', async (req, res) => {
   console.log(`[Twilio Voice] Incoming call for session: ${sessionId}`);
 
   try {
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session) {
       console.error(`[Twilio Voice] Session not found: ${sessionId}`);
       response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, 'Technical problem hai. Namaste.');
@@ -53,10 +53,9 @@ router.post('/voice', async (req, res) => {
     const ttsUrl = getTtsUrl(result.response, sessionId);
     if (ttsUrl) {
       response.play(ttsUrl);
+    } else {
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     }
-    
-    // Fallback native voice
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     
     const gather = response.gather({
       input: 'speech',
@@ -87,7 +86,7 @@ router.post('/gather', async (req, res) => {
   const response = new VoiceResponse();
 
   try {
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session) {
       response.hangup();
       return res.type('text/xml').send(response.toString());
@@ -106,8 +105,9 @@ router.post('/gather', async (req, res) => {
     const ttsUrl = getTtsUrl(result.response, sessionId);
     if (ttsUrl) {
       response.play(ttsUrl);
+    } else {
+      response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
     }
-    response.say({ voice: 'Polly.Aditi-Neural', language: 'hi-IN' }, result.response);
 
     if (result.shouldEnd) {
       response.hangup();
@@ -149,7 +149,7 @@ router.get('/tts', async (req, res) => {
     fs.writeFileSync(cachePath, audioBuffer);
     
     res.set({
-      'Content-Type': 'audio/mpeg',
+      'Content-Type': 'audio/wav',
       'Content-Length': audioBuffer.length
     });
     res.send(audioBuffer);
@@ -163,9 +163,40 @@ router.get('/tts', async (req, res) => {
 router.post('/status', async (req, res) => {
   const sessionId = req.query.sessionId;
   const callStatus = req.body.CallStatus;
+  
+  // Try to recover session to update it
+  const session = await getSession(sessionId);
   console.log(`[Twilio Status] Session: ${sessionId}, Status: ${callStatus}`);
   if (['completed', 'failed', 'busy', 'no-answer'].includes(callStatus)) {
-    try { await postCallUpdate(sessionId, callStatus); } catch (e) {}
+    try { 
+      await postCallUpdate(sessionId, {
+        status: callStatus,
+        duration: req.body.CallDuration,
+        recordingUrl: req.body.RecordingUrl,
+        explicitCallSid: req.body.CallSid
+      }); 
+    } catch (e) {
+      console.error('[Status Webhook Error]', e.message);
+    }
+  }
+  res.sendStatus(200);
+});
+
+// POST /webhook/twilio/recording - Recording callback
+router.post('/recording', async (req, res) => {
+  const { RecordingUrl, CallSid } = req.body;
+  console.log(`[Twilio Recording] CallSid: ${CallSid}, URL: ${RecordingUrl}`);
+  
+  if (RecordingUrl && CallSid) {
+    try {
+      const { supabaseAdmin } = require('../services/supabase');
+      await supabaseAdmin
+        .from('call_logs')
+        .update({ recording_url: RecordingUrl })
+        .eq('twilio_call_sid', CallSid);
+    } catch (e) {
+      console.error('[Recording Webhook Error]', e.message);
+    }
   }
   res.sendStatus(200);
 });

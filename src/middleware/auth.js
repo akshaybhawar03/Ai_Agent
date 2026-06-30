@@ -6,12 +6,13 @@ const { supabaseAdmin } = require('../services/supabase');
 
 async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
+  const queryToken = req.query.token;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader && !queryToken) {
     return res.status(401).json({ error: 'Missing or invalid authorization header' });
   }
 
-  const token = authHeader.split(' ')[1];
+  const token = authHeader ? authHeader.split(' ')[1] : queryToken;
 
   try {
     // Verify JWT

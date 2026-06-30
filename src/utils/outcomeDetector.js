@@ -1,10 +1,13 @@
 /**
  * Outcome Detector - Analyzes call transcripts using GPT
+ * Now supports multiple use cases with dynamic outcome categories
  */
 const { getOpenAIClient, getModelName } = require('../services/openai');
+const { USE_CASES } = require('./useCaseTemplates');
 
-async function detectOutcome(transcript, apiKey) {
+async function detectOutcome(transcript, apiKey, useCase = 'payment_recovery') {
   const client = getOpenAIClient(apiKey);
+  const template = USE_CASES[useCase] || USE_CASES.payment_recovery;
 
   try {
     const res = await client.chat.completions.create({
@@ -16,15 +19,7 @@ async function detectOutcome(transcript, apiKey) {
         },
         {
           role: 'user',
-          content: `Transcript: "${transcript}"
-      
-Return JSON:
-{
-  "outcome": "promise_given|paid|refused|callback|no_answer|wrong_number",
-  "promise_date": "YYYY-MM-DD or null",
-  "amount_promised": number_or_null,
-  "summary": "1 line Hindi mein"
-}`
+          content: `Transcript: "${transcript}"\n\n${template.outcomePrompt}`
         }
       ],
       max_tokens: 150,
@@ -51,12 +46,30 @@ Return JSON:
 
 function mapOutcomeToStatus(outcome) {
   const map = {
+    // Payment Recovery
     'promise_given': 'promised',
     'paid': 'paid',
     'refused': 'refused',
     'callback': 'callback',
     'no_answer': 'no_answer',
-    'wrong_number': 'wrong_number'
+    'wrong_number': 'wrong_number',
+    // Lead Generation
+    'interested': 'interested',
+    'not_interested': 'not_interested',
+    'meeting_booked': 'meeting_booked',
+    // Marketing
+    'purchased': 'purchased',
+    // Appointment
+    'confirmed': 'confirmed',
+    'rescheduled': 'rescheduled',
+    'cancelled': 'cancelled',
+    // Feedback
+    'positive_feedback': 'positive',
+    'negative_feedback': 'negative',
+    'neutral': 'neutral',
+    // Custom
+    'success': 'success',
+    'failed': 'failed'
   };
   return map[outcome] || 'pending';
 }

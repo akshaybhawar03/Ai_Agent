@@ -107,21 +107,39 @@ async function initiateCall(customerId, businessId) {
         from: process.env.TWILIO_PHONE_NUMBER,
         url: `${process.env.WEBHOOK_BASE_URL}/twilio/voice?customer_id=${customer.id}`,
         statusCallback: `${process.env.WEBHOOK_BASE_URL}/twilio/status`,
-        statusCallbackMethod: 'POST'
+        statusCallbackMethod: 'POST',
+        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        record: true,
+        recordingStatusCallback: `${process.env.WEBHOOK_BASE_URL}/twilio/recording`,
+        recordingStatusCallbackMethod: 'POST'
       });
 
-      const callId = call.sid;
-      
-      await supabaseAdmin.from('call_logs').insert({
-        business_id: businessId,
-        customer_id: customerId,
-        customer_name: customer.customer_name,
-        customer_phone: customer.phone,
-        twilio_call_sid: callId,
-        status: 'initiated',
-        outcome: 'in_progress',
-        called_at: new Date().toISOString()
-      });
+      try {
+        const { data: insertedLog, error: insertError } = await supabaseAdmin.from('call_logs').insert({
+          business_id: businessId,
+          customer_id: customerId,
+          twilio_call_sid: callId,
+          status: 'initiated',
+          outcome: 'no_answer',
+          duration: 0,
+          called_at: new Date().toISOString(),
+          ai_summary: 'Call initiated'
+        }).select();
+        
+        console.log('[Call Log Insert]', insertError ? `Error: ${insertError.message}` : 'Success', 'SID:', callId);
+        if (insertedLog) console.log('[Call Log Created]', insertedLog[0].id);
+      } catch (err) {
+        console.error('[Call Log Error]', err.message);
+      }
+
+      return { callId, sessionId, status: 'initiated', provider: 'twilio-ws' };
+
+      // Update customer call counts immediately
+      await supabaseAdmin.from('customers').update({
+        call_count_today: (customer.call_count_today || 0) + 1,
+        total_calls: (customer.total_calls || 0) + 1,
+        last_call_date: new Date().toISOString()
+      }).eq('id', customerId);
 
       return { callId, sessionId, status: 'initiated', provider: 'twilio-ws' };
     }
@@ -134,23 +152,38 @@ async function initiateCall(customerId, businessId) {
       webhookUrl: `${webhookBase}/webhook/twilio/voice?sessionId=${sessionId}`,
       statusCallback: `${webhookBase}/webhook/twilio/status?sessionId=${sessionId}`,
       accountSid: business.twilio_account_sid,
-      authToken: business.twilio_auth_token
+      authToken: business.twilio_auth_token,
+      record: true
     });
 
     // Update session with Twilio SID
     activeCalls.get(sessionId).twilioCallSid = call.sid;
 
     // Create initial call log entry
-    await supabaseAdmin.from('call_logs').insert({
-      business_id: businessId,
-      customer_id: customerId,
-      customer_name: customer.customer_name,
-      customer_phone: customer.phone,
-      twilio_call_sid: call.sid,
-      status: 'initiated',
-      outcome: 'in_progress',
-      called_at: new Date().toISOString()
-    });
+    try {
+      const { data: insertedLog, error: insertError } = await supabaseAdmin.from('call_logs').insert({
+        business_id: businessId,
+        customer_id: customerId,
+        twilio_call_sid: call.sid,
+        status: 'initiated',
+        outcome: 'no_answer',
+        duration: 0,
+        called_at: new Date().toISOString(),
+        ai_summary: 'Call initiated (Fallback)'
+      }).select();
+      
+      console.log('[Call Log Insert (Fallback)]', insertError ? `Error: ${insertError.message}` : 'Success', 'SID:', call.sid);
+      if (insertedLog) console.log('[Call Log Created (Fallback)]', insertedLog[0].id);
+    } catch (err) {
+      console.error('[Call Log Error (Fallback)]', err.message);
+    }
+
+    // Update customer call counts immediately
+    await supabaseAdmin.from('customers').update({
+      call_count_today: (customer.call_count_today || 0) + 1,
+      total_calls: (customer.total_calls || 0) + 1,
+      last_call_date: new Date().toISOString()
+    }).eq('id', customerId);
 
     return { callSid: call.sid, sessionId, status: 'initiated', provider: 'twilio' };
   } catch (error) {
@@ -205,16 +238,20 @@ async function processConversation(sessionId, userSpeech) {
 /**
  * Handle post-call processing
  */
-async function postCallUpdate(sessionId, data = {}) {
-  const session = activeCalls.get(sessionId);
-  if (!session) return;
-
-  const { duration, recordingUrl } = data;
+async function postCallUpdate(sessionId, { status, duration, recordingUrl, explicitCallSid }) {
+  const session = await getSession(sessionId);
+  const callSid = explicitCallSid || session?.callSid;
+  
+  if (!callSid) {
+    console.error(`[PostCall] No CallSid found for session ${sessionId}. Cannot update DB.`);
+    return;
+  }
   const apiKey = session.business.openai_api_key || process.env.OPENAI_API_KEY;
 
   try {
-    // Detect outcome from transcript
-    const outcomeData = await detectOutcome(session.transcript, apiKey);
+    // Detect outcome from transcript (use case aware)
+    const useCase = session.agent?.use_case || 'payment_recovery';
+    const outcomeData = await detectOutcome(session.transcript, apiKey, useCase);
 
     // Update customer record
     const { data: currentCustomer } = await supabaseAdmin
@@ -233,7 +270,8 @@ async function postCallUpdate(sessionId, data = {}) {
     }).eq('id', session.customerId);
 
     // Update call log
-    await supabaseAdmin.from('call_logs').update({
+    console.log(`[PostCall] Updating database for Call SID: ${callSid}...`);
+    const { error: updateError } = await supabaseAdmin.from('call_logs').update({
       duration: duration || Math.floor((Date.now() - session.startTime) / 1000),
       transcript: session.transcript,
       ai_summary: outcomeData.summary,
@@ -242,16 +280,19 @@ async function postCallUpdate(sessionId, data = {}) {
       amount_promised: outcomeData.amount_promised,
       promise_date: outcomeData.promise_date,
       status: 'completed'
-    }).eq('twilio_call_sid', session.twilioCallSid);
+    }).eq('twilio_call_sid', callSid);
+
+    if (updateError) throw updateError;
+    console.log(`[PostCall] Call log updated successfully for ${session.customer.customer_name}`);
   } catch (error) {
     console.error('Post-call update failed:', error.message);
     // Still update the log as completed even if analysis fails
     await supabaseAdmin.from('call_logs').update({
-      duration: duration || Math.floor((Date.now() - session.startTime) / 1000),
-      transcript: session.transcript,
+      duration: duration || Math.floor((Date.now() - (session?.startTime || Date.now())) / 1000),
+      transcript: session?.transcript || '',
       status: 'completed',
       outcome: 'error'
-    }).eq('twilio_call_sid', session.twilioCallSid);
+    }).eq('twilio_call_sid', callSid);
   } finally {
     // Clean up session
     activeCalls.delete(sessionId);
@@ -300,8 +341,63 @@ async function bulkCall(businessId) {
   return { called: results.filter(r => !r.error).length, total: customers.length, results };
 }
 
-function getSession(sessionId) {
-  return activeCalls.get(sessionId);
+/**
+ * Get session with auto-recovery if missing from memory
+ */
+async function getSession(sessionId) {
+  let session = activeCalls.get(sessionId);
+  if (session) return session;
+
+  console.log(`[CallEngine] Session ${sessionId} not in memory. Attempting recovery...`);
+  
+  try {
+    // Session ID format: `${businessId}_${customerId}_${Date.now()}`
+    const parts = sessionId.split('_');
+    if (parts.length < 3) return null;
+
+    const businessId = parts[0];
+    const customerId = parts[1];
+
+    // Fetch required data to rebuild session
+    const { data: business } = await supabaseAdmin.from('businesses').select('*').eq('id', businessId).single();
+    const { data: customer } = await supabaseAdmin.from('customers').select('*').eq('id', customerId).single();
+    const { data: agent } = await supabaseAdmin.from('agents').select('*').eq('business_id', businessId).eq('is_active', true).single();
+
+    // Fetch the latest call SID for this customer to link the session
+    const { data: lastLog } = await supabaseAdmin
+      .from('call_logs')
+      .select('twilio_call_sid')
+      .eq('customer_id', customerId)
+      .order('called_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!business || !customer || !agent) return null;
+
+    const systemPrompt = generatePrompt(agent, customer, business);
+    
+    // Rebuild the session
+    session = {
+      businessId,
+      customerId,
+      business,
+      agent,
+      customer,
+      callSid: lastLog?.twilio_call_sid, // Link the recovered SID
+      systemPrompt,
+      messages: [{ role: 'system', content: systemPrompt }],
+      transcript: '[Recovered Session]\n',
+      startTime: Date.now(),
+      isRecovered: true
+    };
+
+    activeCalls.set(sessionId, session);
+    console.log(`[CallEngine] Session recovered successfully for ${customer.customer_name} (SID: ${session.callSid})`);
+    return session;
+  } catch (err) {
+    console.error('[CallEngine] Session recovery failed:', err.message);
+    return null;
+  }
 }
 
 function getActiveCalls() {
